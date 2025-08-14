@@ -1,0 +1,163 @@
+{# templates/league/standings.html #}
+{% extends "league/base.html" %}
+{% block title %}Standings • {{ season.year }}{% endblock %}
+
+{% block content %}
+<h2>Standings — {{ season.year }}</h2>
+
+<style>
+  /* (3) Responsive tables */
+  .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .table-wrap table { min-width: 520px; }
+
+  /* (4) Responsive charts */
+  .chart-box { position: relative; height: 340px; margin: 16px 0; }
+  @media (max-width: 640px) { .chart-box { height: 240px; } }
+</style>
+
+<h3>Teams</h3>
+<div class="table-wrap">
+  <table class="table table-striped">
+    <thead>
+      <tr>
+        <th>Team</th><th>Indiv Units</th><th>Parlay Units</th><th>Total Units</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in teams %}
+        <tr>
+          <td>{{ row.team.name }}</td>
+          <td>{{ row.indiv_units|floatformat:2 }}</td>
+          <td>{{ row.parlay_units|floatformat:2 }}</td>
+          <td><strong>{{ row.total_units|floatformat:2 }}</strong></td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="4"><em>No teams yet.</em></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<h3>Individuals</h3>
+<div class="table-wrap">
+  <table class="table table-striped">
+    <thead>
+      <tr>
+        <th>User</th><th>Total Units</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in individuals %}
+        <tr>
+          <td>{{ r.user__username }}</td>
+          <td><strong>{{ r.units|floatformat:2 }}</strong></td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="2"><em>No bets yet.</em></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<hr>
+
+{# Charts below the tables #}
+{% if last_settled_week %}
+  <h3 style="margin-bottom:8px;">Team Total Units (Cumulative by Week)</h3>
+  <div class="chart-box"><canvas id="teamsChart"></canvas></div>
+
+  <h3 style="margin-bottom:8px;">Individual Units (Cumulative by Week)</h3>
+  <div class="chart-box"><canvas id="usersChart"></canvas></div>
+
+  <h3 style="margin-bottom:4px;">
+    STINKER Plot
+    <small style="font-weight:normal; display:block; margin-top:4px;">
+      If you went 0/3 any given week you are STINKY!!! Here lies the tally of our STINKERS.
+    </small>
+  </h3>
+  <div class="chart-box"><canvas id="stinkyChart"></canvas></div>
+
+  {# Safely embed data as JSON #}
+  {{ chart_weeks|json_script:"chart-labels" }}
+  {{ team_chart_series|json_script:"team-series-data" }}
+  {{ user_chart_series|json_script:"user-series-data" }}
+  {{ stinker_labels|json_script:"stinky-labels" }}
+  {{ stinker_data|json_script:"stinky-data" }}
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script>
+  (function(){
+    const labels       = JSON.parse(document.getElementById('chart-labels').textContent);
+    const teamSeries   = JSON.parse(document.getElementById('team-series-data').textContent);
+    const userSeries   = JSON.parse(document.getElementById('user-series-data').textContent);
+    const stinkyLabels = JSON.parse(document.getElementById('stinky-labels').textContent || "[]");
+    const stinkyData   = JSON.parse(document.getElementById('stinky-data').textContent   || "[]");
+
+    function toDatasets(series) {
+      return series.map(s => ({
+        label: s.label,
+        data: s.data,
+        fill: false,
+        tension: 0.25,
+        pointRadius: 2,
+        borderWidth: 2,
+        spanGaps: true
+      }));
+    }
+
+    // (4) Mobile-friendly chart options
+    const commonOpts = {
+      responsive: true,
+      maintainAspectRatio: false,   // key for .chart-box heights
+      interaction: { mode: 'nearest', intersect: false },
+      plugins: {
+        legend: { position: 'bottom', labels: { usePointStyle: true, boxWidth: 10 } },
+        tooltip: { callbacks: { label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y}` } }
+      },
+      scales: {
+        x: { title: { display: true, text: 'Week' } },
+        y: { title: { display: true, text: 'Cumulative Units' }, beginAtZero: true }
+      }
+    };
+
+    new Chart(document.getElementById('teamsChart').getContext('2d'), {
+      type: 'line',
+      data: { labels: labels, datasets: toDatasets(teamSeries) },
+      options: commonOpts
+    });
+
+    new Chart(document.getElementById('usersChart').getContext('2d'), {
+      type: 'line',
+      data: { labels: labels, datasets: toDatasets(userSeries) },
+      options: commonOpts
+    });
+
+    if (stinkyLabels.length) {
+      new Chart(document.getElementById('stinkyChart').getContext('2d'), {
+        type: 'bar',
+        data: {
+          labels: stinkyLabels,
+          datasets: [{ label: 'Stinker Weeks (0/3)', data: stinkyData, borderWidth: 1 }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,  // matches .chart-box
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { title: { display: true, text: 'User' } },
+            y: {
+              beginAtZero: true,
+              title: { display: true, text: 'Weeks as a STINKER' },
+              ticks: { precision: 0, stepSize: 1 }
+            }
+          }
+        }
+      });
+    }
+  })();
+  </script>
+{% else %}
+  <p><em>No settled weeks yet—charts will appear once Week 1 is settled.</em></p>
+{% endif %}
+{% endblock %}
+

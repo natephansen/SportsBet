@@ -1,0 +1,39 @@
+{% extends "league/base.html" %}
+{% block title %}Week {{ week }} • {{ season.year }}{% endblock %}
+{% block content %}
+<h2>Week {{ week }} — Season {{ season.year }}</h2>
+
+{% if user.is_authenticated %}
+  <p><a class="btn" href="{% url 'submit_pick' season.year week %}">Submit your pick</a></p>
+{% else %}
+  <p><em>Login to submit your pick.</em></p>
+{% endif %}
+
+<table>
+  <thead>
+    <tr>
+      <th>User</th><th>Team</th><th>Pick</th><th>Line</th><th>Odds</th><th>Status</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for b in bets %}
+    <tr>
+      <td>{{ b.user.username }}</td>
+      <td>{{ b.team.name }}</td>
+      <td>{{ b.bet_type }}</td>
+      <td>{{ b.pick_text }}</td>
+      <td>{{ b.line }}</td>
+      <td>{{ b.american_odds }}</td>
+      <td>{% if b.parlay_selected %}✓{% endif %}</td>
+      <td>{{ b.status }}</td>
+    </tr>
+    {% empty %}
+    <tr><td colspan="6"><em>No bets yet.</em></td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+<p>
+  <a href="{% url 'standings' season.year %}">Back to standings</a>
+  <a href="{% url 'league_dashboard' season.year %}">Dashboard</a>
+</p>
+{% endblock %}

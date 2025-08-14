@@ -1,0 +1,148 @@
+{% extends "league/base.html" %}
+{% block title %}Submit Picks • Week {{ week }}{% endblock %}
+{% block content %}
+<h2>Submit Picks — Week {{ week }} ({{ season.year }})</h2>
+{% if error %}<div style="color:#b00; margin:.5rem 0">{{ error }}</div>{% endif %}
+<p><small>Enter your three bets. Check exactly one “Parlay selected” to include it in the team parlay.</small></p>
+
+<style>
+  /* Reusable blocks */
+  .field-error { color:#b00; font-size:.9em; margin-top:.25rem; }
+  .input-block label { display:block; margin-bottom:4px; font-weight:600; }
+  .input-block input,
+  .input-block select { width:100%; box-sizing:border-box; }
+
+  /* Grid for sections that include Over/Under */
+  .fieldset-grid-2 {
+    display:grid;
+    grid-template-columns: minmax(260px, 1fr) 160px; /* Pick Text grows, O/U fixed */
+    column-gap: 12px;
+    row-gap: 10px;
+    align-items:end;
+  }
+  .full { grid-column: 1 / -1; } /* span both columns */
+  @media (max-width: 640px) {
+    .fieldset-grid-2 { grid-template-columns: 1fr !important; }
+    .input-block { width: 100%; }
+    .input-block[style*="max-width"] { max-width: 100% !important; }
+  }
+</style>
+
+<form method="post">
+  {% csrf_token %}
+
+  {# -------------------- SPREAD (no Over/Under) -------------------- #}
+  <fieldset style="margin-bottom:1rem; border:1px solid #ddd; padding:1rem;">
+    <legend>Spread</legend>
+
+    <div class="input-block" style="max-width:520px;">
+      <label>Pick Text</label>
+      {{ forms.SPREAD.pick_text }}
+      {% for e in forms.SPREAD.pick_text.errors %}<div class="field-error">{{ e }}</div>{% endfor %}
+    </div>
+
+    <div class="input-block" style="max-width:220px; margin-top:10px;">
+      <label>Line</label>
+      {{ forms.SPREAD.line }}
+      {% for e in forms.SPREAD.line.errors %}<div class="field-error">{{ e }}</div>{% endfor %}
+    </div>
+
+    <div class="input-block" style="max-width:220px; margin-top:10px;">
+      <label>American Odds</label>
+      {{ forms.SPREAD.american_odds }}
+      {% for e in forms.SPREAD.american_odds.errors %}<div class="field-error">{{ e }}</div>{% endfor %}
+    </div>
+
+    <div class="full" style="display:flex; align-items:center; gap:8px; margin-top:10px;">
+      {{ forms.SPREAD.parlay_selected }} <label>Parlay selected</label>
+      {% for e in forms.SPREAD.parlay_selected.errors %}<div class="field-error">{{ e }}</div>{% endfor %}
+    </div>
+  </fieldset>
+
+  {# -------------------- TOTAL (with Over/Under dropdown) -------------------- #}
+  <fieldset style="margin-bottom:1rem; border:1px solid #ddd; padding:1rem;">
+    <legend>Total</legend>
+
+    <div class="fieldset-grid-2">
+      <!-- Row 1: Pick Text + Over/Under (tight side-by-side) -->
+      <div class="input-block">
+        <label>Pick Text</label>
+        {{ forms.TOTAL.pick_text }}
+        {% for e in forms.TOTAL.pick_text.errors %}<div class="field-error">{{ e }}</div>{% endfor %}
+      </div>
+
+      {% if forms.TOTAL.over_under %}
+      <div class="input-block">
+        <label>Over/Under</label>
+        {{ forms.TOTAL.over_under }}  {# dropdown #}
+        {% for e in forms.TOTAL.over_under.errors %}<div class="field-error">{{ e }}</div>{% endfor %}
+      </div>
+      {% endif %}
+
+      <!-- Row 2: Line -->
+      <div class="input-block full" style="max-width:220px;">
+        <label>Line</label>
+        {{ forms.TOTAL.line }}
+        {% for e in forms.TOTAL.line.errors %}<div class="field-error">{{ e }}</div>{% endfor %}
+      </div>
+
+      <!-- Row 3: American Odds (stacked, full width constraint) -->
+      <div class="input-block full" style="max-width:220px;">
+        <label>American Odds</label>
+        {{ forms.TOTAL.american_odds }}
+        {% for e in forms.TOTAL.american_odds.errors %}<div class="field-error">{{ e }}</div>{% endfor %}
+      </div>
+
+      <!-- Row 4: Parlay selected (stacked) -->
+      <div class="full" style="display:flex; align-items:center; gap:8px;">
+        {{ forms.TOTAL.parlay_selected }} <label>Parlay selected</label>
+        {% for e in forms.TOTAL.parlay_selected.errors %}<div class="field-error">{{ e }}</div>{% endfor %}
+      </div>
+    </div>
+  </fieldset>
+
+  {# -------------------- PLAYER PROP (with Over/Under dropdown) -------------------- #}
+  <fieldset style="margin-bottom:1rem; border:1px solid #ddd; padding:1rem;">
+    <legend>Player Prop</legend>
+
+    <div class="fieldset-grid-2">
+      <!-- Row 1: Pick Text + Over/Under -->
+      <div class="input-block">
+        <label>Pick Text</label>
+        {{ forms.PROP.pick_text }}
+        {% for e in forms.PROP.pick_text.errors %}<div class="field-error">{{ e }}</div>{% endfor %}
+      </div>
+
+      {% if forms.PROP.over_under %}
+      <div class="input-block">
+        <label>Over/Under</label>
+        {{ forms.PROP.over_under }}  {# dropdown #}
+        {% for e in forms.PROP.over_under.errors %}<div class="field-error">{{ e }}</div>{% endfor %}
+      </div>
+      {% endif %}
+
+      <!-- Row 2: Line -->
+      <div class="input-block full" style="max-width:220px;">
+        <label>Line</label>
+        {{ forms.PROP.line }}
+        {% for e in forms.PROP.line.errors %}<div class="field-error">{{ e }}</div>{% endfor %}
+      </div>
+
+      <!-- Row 3: American Odds (stacked) -->
+      <div class="input-block full" style="max-width:220px;">
+        <label>American Odds</label>
+        {{ forms.PROP.american_odds }}
+        {% for e in forms.PROP.american_odds.errors %}<div class="field-error">{{ e }}</div>{% endfor %}
+      </div>
+
+      <!-- Row 4: Parlay selected (stacked) -->
+      <div class="full" style="display:flex; align-items:center; gap:8px;">
+        {{ forms.PROP.parlay_selected }} <label>Parlay selected</label>
+        {% for e in forms.PROP.parlay_selected.errors %}<div class="field-error">{{ e }}</div>{% endfor %}
+      </div>
+    </div>
+  </fieldset>
+
+  <button class="btn" type="submit">Save Picks</button>
+</form>
+{% endblock %}

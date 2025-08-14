@@ -1,0 +1,29 @@
+{% extends "league/base.html" %}
+{% block title %}Stats • {{ user_profile.username }}{% endblock %}
+{% block content %}
+<h2>{{ user_profile.username }} — Stats</h2>
+<p>Biggest hit (units): {{ biggest_hit|floatformat:2 }}</p>
+<p>Best win streak: {{ best_streak }}</p>
+
+<h3>History</h3>
+<table>
+  <thead>
+    <tr>
+      <th>Season</th><th>Week</th><th>Pick</th><th>Odds</th><th>Status</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for b in bets %}
+    <tr>
+      <td>{{ b.season.year }}</td>
+      <td>{{ b.week }}</td>
+      <td>{{ b.pick_text }}</td>
+      <td>{{ b.american_odds }}</td>
+      <td>{{ b.status }}</td>
+    </tr>
+    {% empty %}
+    <tr><td colspan="5"><em>No bets yet.</em></td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

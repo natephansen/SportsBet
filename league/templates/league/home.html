@@ -1,0 +1,15 @@
+{% extends "league/base.html" %}
+{% block content %}
+<h2>Seasons</h2>
+<ul>
+  {% for s in seasons %}
+    <li>
+      <a href="{% url 'standings' s.year %}">{{ s.year }}</a>
+      • <a href="{% url 'week_view' s.year 1 %}">Week 1</a>
+      • <a href="{% url 'league_dashboard' s.year %}">Dashboard</a>   <!-- NEW -->
+    </li>
+  {% empty %}
+    <li>No seasons yet. Add one in the admin.</li>
+  {% endfor %}
+</ul>
+{% endblock %}

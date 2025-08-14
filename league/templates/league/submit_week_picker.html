@@ -1,0 +1,12 @@
+{% extends "league/base.html" %}
+{% block title %}Submit Picks • {{ season.year }}{% endblock %}
+{% block content %}
+<h2>Submit Picks — Choose Week ({{ season.year }})</h2>
+{% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
+
+<div class="d-flex flex-wrap gap-2">
+  {% for w in weeks %}
+    <a class="btn btn-primary mb-2" href="{% url 'submit_pick' season.year w %}">Week {{ w }}</a>
+  {% endfor %}
+</div>
+{% endblock %}
