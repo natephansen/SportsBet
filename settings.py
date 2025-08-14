@@ -29,7 +29,6 @@ def env_bool(name, default=False):
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-# SECRET_KEY = 'django-insecure-5-u9z$!@(8&h#-0f%kw!cs5j2x0sxl%gh76gsoh@vgsv)9@*zu'
 SECRET_KEY = os.getenv("SECRET_KEY", "CHANGE_ME_IN_PROD")
 DEBUG = env_bool("DEBUG", False)
 # SECURITY WARNING: don't run with debug turned on in production!
