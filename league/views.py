@@ -399,45 +399,46 @@ def standings(request, season_year: int):
     weekly = (
         Bet.objects.filter(season=season)
             .exclude(status="PENDING")
-            .values("user__username", "week")
+            .values("user_id", "user__username", "week")      # include user_id to prevent any duping on name
             .annotate(
-                total=Count("id"),
-                won=Sum(Case(When(status="WON",  then=1), default=0, output_field=IntegerField())),
-                lost=Sum(Case(When(status="LOST", then=1), default=0, output_field=IntegerField())),
-                push=Sum(Case(When(status="PUSH", then=1), default=0, output_field=IntegerField())),
+                wins=Count("id", filter=Q(status="WON")),
+                losses=Count("id", filter=Q(status="LOST")),
+                settled_cnt=Count("id", filter=Q(status__in=["WON", "LOST"])),
             )
     )
 
-    # Qualifying weeks (exactly 3 settled picks)
-    stinker_weeks = weekly.filter(total=3, lost=3)  # 0–3
-    heater_weeks  = weekly.filter(total=3, won=3)   # 3–0
+    # Weeks that qualify
+    stinker_weeks = weekly.filter(settled_cnt=3, losses=3)
+    heater_weeks  = weekly.filter(settled_cnt=3, wins=3)
 
-    # Collapse to per-user COUNTS of DISTINCT weeks (protects against any dup rows)
+    # Count DISTINCT weeks per user (critical)
     stinker_counts = (
-        stinker_weeks.values("user__username")
-        .annotate(n=Count("week", distinct=True))
+        stinker_weeks
+            .values("user_id", "user__username")
+            .annotate(n=Count("week", distinct=True))
     )
     heater_counts = (
-        heater_weeks.values("user__username")
-        .annotate(n=Count("week", distinct=True))
+        heater_weeks
+            .values("user_id", "user__username")
+            .annotate(n=Count("week", distinct=True))
     )
 
-# Include all users, defaulting to 0
+    # Build chart arrays (include everyone who has any bet this season)
     all_usernames = list(
         Bet.objects.filter(season=season)
             .values_list("user__username", flat=True)
             .distinct()
     )
 
-    stinker_map = {row["user__username"]: row["n"] for row in stinker_counts}
-    heater_map  = {row["user__username"]: row["n"] for row in heater_counts}
+    stinker_map = {r["user__username"]: r["n"] for r in stinker_counts}
+    heater_map  = {r["user__username"]: r["n"] for r in heater_counts}
 
     stinker_labels = sorted(all_usernames)
     stinker_data   = [int(stinker_map.get(u, 0)) for u in stinker_labels]
 
-    heater_labels  = stinker_labels  # same order
+    heater_labels  = stinker_labels
     heater_data    = [int(heater_map.get(u, 0)) for u in heater_labels]
-    
+
     return render(request, "league/standings.html", {
         "season": season,
         "teams": teams,
