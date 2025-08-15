@@ -39,14 +39,27 @@ ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "").split(",") if not DEBUG else ["*"
 CSRF_TRUSTED_ORIGINS = [o.strip() for o in os.getenv("CSRF_TRUSTED_ORIGINS", "").split(",") if o.strip()]
 
 # --- Database (Postgres via DATABASE_URL, fallback to SQLite) ---
+# --- Database (Postgres via DATABASE_URL, fallback to SQLite) ---
+import dj_database_url
 DATABASE_URL = os.getenv("DATABASE_URL")
-if DATABASE_URL:
-    # pip install dj-database-url
-    import dj_database_url
-    DATABASES = {"default": dj_database_url.parse(DATABASE_URL, conn_max_age=600)}
-else:
-    DATABASES = {"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": BASE_DIR / "db.sqlite3"}}
 
+DATABASES = {
+    "default": {
+        "ENGINE": "django.db.backends.sqlite3",
+        "NAME": BASE_DIR / "db.sqlite3",
+    }
+}
+
+if DATABASE_URL:
+    # On Render, the *Internal* connection usually doesn't require SSL.
+    # If you ever switch to the External URL, flip ssl_require=True.
+    DATABASES["default"] = dj_database_url.parse(
+        DATABASE_URL, conn_max_age=600, ssl_require=False
+    )
+
+# Safety: don't allow SQLite in prod accidentally
+if not DEBUG and not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL is not set in production")
 
 # Application definition
 
@@ -90,16 +103,6 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'betting_league.wsgi.application'
 
-
-# Database
-# https://docs.djangoproject.com/en/5.2/ref/settings/#databases
-
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
-    }
-}
 
 
 # Password validation
@@ -167,6 +170,9 @@ if not DEBUG:
     SECURE_HSTS_SECONDS = int(os.getenv("SECURE_HSTS_SECONDS", "31536000"))  # 1 year
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
     SECURE_HSTS_PRELOAD = True
+
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+USE_X_FORWARDED_HOST = True
 
 # --- Logging (simple console) ---
 LOGGING = {
