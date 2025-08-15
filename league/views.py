@@ -8,14 +8,30 @@ from django.http import HttpResponseForbidden
 from django import forms
 from .sevices import recompute_team_parlay
 from django.db.models import Sum, F, Case, When, FloatField, IntegerField
-from django.db.models import Q
+from django.db.models import Q, Count
 from .forms import BetSimpleForm
 import json
+from django.contrib import messages
+from django.conf import settings
+from django.db.models import IntegerField, Count
+from datetime import datetime, time, timedelta
+from zoneinfo import ZoneInfo
+from django.utils import timezone
 
 class BetForm(forms.ModelForm):
     class Meta:
         model = Bet
         fields = ["pick_text", "line", "american_odds", "parlay_selected"]  # stake_units fixed at 1 for now
+
+def week_reveal_dt(season, week: int, hour: int = 13, minute: int = 0):
+    """
+    Reveal time for a given NFL week = Sunday 1:00pm ET.
+    We anchor to the first Sunday on/after season.start_date, then add N-1 weeks.
+    """
+    base_date = season.start_date
+    # Move to Sunday (weekday: Mon=0 ... Sun=6)
+    sunday = base_date + timedelta(days=(6 - base_date.weekday()) % 7)
+    return datetime.combine(sunday, time(hour, minute), tzinfo=ZoneInfo("America/New_York")) + timedelta(weeks=week - 1)
 
 def home(request):
     seasons = Season.objects.order_by("-year")
@@ -54,35 +70,37 @@ def week_view(request, season_year: int, week: int):
 @login_required
 def submit_pick(request, season_year: int, week: int):
     season = get_object_or_404(Season, year=season_year)
-    membership = TeamMembership.objects.filter(user=request.user, team__season=season).select_related("team").first()
+    membership = (
+        TeamMembership.objects
+        .filter(user=request.user, team__season=season)
+        .select_related("team")
+        .first()
+    )
     if not membership:
         return HttpResponseForbidden("You are not assigned to a team for this season.")
 
-    # build or load 3 forms, one per type
     bt_types = ["SPREAD", "TOTAL", "PROP"]
-    instances = {bt: Bet.objects.filter(user=request.user, season=season, week=week, bet_type=bt).first()
-                 for bt in bt_types}
+    instances = {
+        bt: Bet.objects.filter(user=request.user, season=season, week=week, bet_type=bt).first()
+        for bt in bt_types
+    }
 
     if request.method == "POST":
-        forms = {}
-        selected_count = 0
-        for bt in bt_types:
-            form = BetSimpleForm(request.POST, prefix=bt, instance=instances[bt], bet_type=bt)
-            forms[bt] = form
-            # count parlay selections across forms
-            if form.data.get(f"{bt}-parlay_selected") == "on":
-                selected_count += 1
+        forms = {
+            bt: BetSimpleForm(request.POST, prefix=bt, instance=instances[bt], bet_type=bt)
+            for bt in bt_types
+        }
 
+        # exactly 0 or 1 parlay may be checked; we'll set False if 0
+        selected_count = sum(1 for bt in bt_types if request.POST.get(f"{bt}-parlay_selected") == "on")
         if selected_count > 1:
             return render(request, "league/submit_pick.html", {
                 "season": season, "week": week, "forms": forms,
-                "error": "Select exactly one bet to count toward the team parlay."
+                "error": "Select at most one bet to include in the team parlay."
             })
 
-        valid = all(f.is_valid() for f in forms.values())
-        if valid:
-            # save each form (create or update)
-            saved = []
+        # STRICT: all three forms must be valid; otherwise nothing saves
+        if all(f.is_valid() for f in forms.values()):
             for bt, form in forms.items():
                 bet = form.save(commit=False)
                 bet.user = request.user
@@ -90,22 +108,26 @@ def submit_pick(request, season_year: int, week: int):
                 bet.season = season
                 bet.week = week
                 bet.bet_type = bt
-                # ensure only one selected; if none selected, all are False
-                if selected_count == 0:
-                    bet.parlay_selected = False
-                else:
-                    # set True only on the one whose checkbox is checked
-                    bet.parlay_selected = (form.data.get(f"{bt}-parlay_selected") == "on")
+                bet.parlay_selected = (
+                    request.POST.get(f"{bt}-parlay_selected") == "on"
+                    if selected_count == 1 else False
+                )
                 bet.save()
-                saved.append(bet)
 
-            # recompute parlay odds for the team this week
+            # recompute team parlay
             recompute_team_parlay(membership.team, season_year, week)
 
-            return redirect("week_view", season_year=season.year, week=week)
-
+            messages.success(request, f"Picks saved for Week {week} ({season_year}).")
+            return redirect("submit_pick_week_picker", season_year=season.year)
+        else:
+            return render(request, "league/submit_pick.html", {
+                "season": season, "week": week, "forms": forms
+            })
     else:
-        forms = {bt: BetSimpleForm(prefix=bt, instance=instances[bt], bet_type=bt) for bt in bt_types}
+        forms = {
+            bt: BetSimpleForm(prefix=bt, instance=instances[bt], bet_type=bt)
+            for bt in bt_types
+        }
 
     return render(request, "league/submit_pick.html", {
         "season": season, "week": week, "forms": forms
@@ -128,26 +150,52 @@ def league_dashboard(request, season_year: int):
     sel_team   = request.GET.get("team", "").strip()    # team id
     sel_parlay = request.GET.get("parlay", "").strip()  # '', 'yes', 'no'
 
-    # ----- base querysets -----
-    bets = (Bet.objects
-            .filter(season=season)
-            .exclude(status="PENDING")
-            .select_related("team", "user"))
+    # ----- small helper: 1:00pm ET Sunday for given week -----
+    def _week_reveal_dt(szn: Season, week: int, hour: int = 13, minute: int = 0):
+        """
+        Reveal time = first Sunday on/after season.start_date, + (week-1) weeks, at 1:00pm ET.
+        """
+        base = szn.start_date
+        first_sunday = base + timedelta(days=(6 - base.weekday()) % 7)  # Mon=0..Sun=6
+        return datetime.combine(first_sunday, time(hour, minute), tzinfo=ZoneInfo("America/New_York")) + timedelta(weeks=week - 1)
 
-    parlays = (TeamParlay.objects
-               .filter(season=season)
-               .exclude(status="PENDING")
-               .select_related("team"))
+    # ----- base querysets (do NOT exclude pending yet) -----
+    bets = (
+        Bet.objects
+        .filter(season=season)
+        .select_related("team", "user")
+    )
+    parlays = (
+        TeamParlay.objects
+        .filter(season=season)
+        .select_related("team")
+    )
 
-    # ----- apply filters -----
-    if sel_week:
-        try:
-            w = int(sel_week)
-            bets    = bets.filter(week=w)
-            parlays = parlays.filter(week=w)
-        except ValueError:
-            pass
+    # ----- reveal logic (only for a specific week) -----
+    try:
+        week_for_reveal = int(sel_week) if sel_week else None
+    except ValueError:
+        week_for_reveal = None
 
+    now_et = timezone.now().astimezone(ZoneInfo("America/New_York"))
+    reveal_is_open = False
+    reveal_at = None
+
+    if week_for_reveal:
+        reveal_at = _week_reveal_dt(season, week_for_reveal)
+        reveal_is_open = now_et >= reveal_at
+        bets    = bets.filter(week=week_for_reveal)
+        parlays = parlays.filter(week=week_for_reveal)
+        # If reveal not open yet, hide pending for that week
+        if not reveal_is_open:
+            bets    = bets.exclude(status="PENDING")
+            parlays = parlays.exclude(status="PENDING")
+    else:
+        # "All weeks" view: always hide pending
+        bets    = bets.exclude(status="PENDING")
+        parlays = parlays.exclude(status="PENDING")
+
+    # ----- remaining filters -----
     if sel_user:
         bets = bets.filter(user__username=sel_user)
 
@@ -181,12 +229,19 @@ def league_dashboard(request, season_year: int):
         "sel_user": sel_user,
         "sel_team": sel_team,
         "sel_parlay": sel_parlay,
+
+        # reveal info (use in a banner if you want)
+        "reveal_is_open": reveal_is_open,
+        "reveal_at_et": reveal_at,
+        "now_et": now_et,
     })
 
 def standings(request, season_year: int):
+    from django.db.models import Count, Q  # local import to keep this drop-in self-contained
+
     season = get_object_or_404(Season, year=season_year)
 
-    # ---------- existing tables (unchanged) ----------
+    # ---------- existing tables ----------
     indiv = (
         Bet.objects.filter(season=season).exclude(status="PENDING")
         .values("user__username")
@@ -211,7 +266,7 @@ def standings(request, season_year: int):
         .annotate(
             units=Sum(
                 Case(
-                    When(status="WON", then=(F("stake_units") * (F("decimal_odds") - 1.0))),
+                    When(status="WON", then=(F("stake_units") * (F("decimal_odds") - 1.0)) ),
                     When(status="LOST", then=(-1.0 * F("stake_units"))),
                     default=0.0, output_field=FloatField(),
                 )
@@ -241,14 +296,30 @@ def standings(request, season_year: int):
     for t in team_units:
         pu = parlay_map.get(t.id, 0.0)
         total = (t.indiv_units or 0.0) + pu
-        teams.append({"team": t, "indiv_units": t.indiv_units or 0.0, "parlay_units": pu, "total_units": total})
+        teams.append({
+            "team": t,
+            "indiv_units": t.indiv_units or 0.0,
+            "parlay_units": pu,
+            "total_units": total,
+        })
     teams.sort(key=lambda x: x["total_units"], reverse=True)
 
-    # ---------- charts: build weekly cumulative series ----------
-    # Weeks to plot (1..18 regular season)
-    weeks = list(range(1, 19))
+    # ---------- charts ----------
+    # Determine the last week with any settled result (bets or parlays)
+    settled_bet_weeks = set(
+        Bet.objects.filter(season=season).exclude(status="PENDING")
+        .values_list("week", flat=True).distinct()
+    )
+    settled_parlay_weeks = set(
+        TeamParlay.objects.filter(season=season).exclude(status="PENDING")
+        .values_list("week", flat=True).distinct()
+    )
+    last_settled_week = max(settled_bet_weeks | settled_parlay_weeks, default=0)
 
-    # Per-bet PnL expression (same logic as above)
+    # X-axis for charts: start with 0 for visual baseline, then 1..last_settled_week
+    weeks = [0] + list(range(1, last_settled_week + 1))
+
+    # Per-bet PnL expression
     bet_pnl_expr = Case(
         When(status="WON", then=(F("stake_units") * (
             Case(
@@ -260,15 +331,15 @@ def standings(request, season_year: int):
         default=0.0, output_field=FloatField(),
     )
 
-    # ---- Team totals by week (indiv + parlay) ----
+    # Team week deltas (indiv + parlay)
     indiv_by_team_week = (
         Bet.objects.filter(season=season).exclude(status="PENDING")
-        .values("team__id", "team__name", "week")
+        .values("team__name", "week")
         .annotate(units=Sum(bet_pnl_expr))
     )
     parlay_by_team_week = (
         TeamParlay.objects.filter(season=season).exclude(status="PENDING")
-        .values("team__id", "team__name", "week")
+        .values("team__name", "week")
         .annotate(
             units=Sum(
                 Case(
@@ -280,7 +351,6 @@ def standings(request, season_year: int):
         )
     )
 
-    # Build dict: team_name -> {week -> total_units_that_week}
     team_week_delta = {}
     for row in indiv_by_team_week:
         team_week_delta.setdefault(row["team__name"], {}).setdefault(row["week"], 0.0)
@@ -289,7 +359,6 @@ def standings(request, season_year: int):
         team_week_delta.setdefault(row["team__name"], {}).setdefault(row["week"], 0.0)
         team_week_delta[row["team__name"]][row["week"]] += float(row["units"] or 0.0)
 
-    # Convert to cumulative series per team across all weeks
     team_series = []
     for team in season.teams.order_by("name"):
         name = team.name
@@ -301,13 +370,12 @@ def standings(request, season_year: int):
             data.append(round(cum, 4))
         team_series.append({"label": name, "data": data})
 
-    # ---- Individual (user) units by week ----
+    # User week deltas
     user_by_week = (
         Bet.objects.filter(season=season).exclude(status="PENDING")
         .values("user__username", "week")
         .annotate(units=Sum(bet_pnl_expr))
     )
-
     user_week_delta = {}
     for row in user_by_week:
         user_week_delta.setdefault(row["user__username"], {})[row["week"]] = float(row["units"] or 0.0)
@@ -326,129 +394,64 @@ def standings(request, season_year: int):
             data.append(round(cum, 4))
         user_series.append({"label": uname, "data": data})
 
-    # ---- determine last settled week (bets or parlays) ----
-    settled_bet_weeks = set(
-        Bet.objects.filter(season=season).exclude(status="PENDING")
-        .values_list("week", flat=True).distinct()
-    )
-    settled_parlay_weeks = set(
-        TeamParlay.objects.filter(season=season).exclude(status="PENDING")
-        .values_list("week", flat=True).distinct()
-    )
-    last_settled_week = max(settled_bet_weeks | settled_parlay_weeks, default=0)
-
-    # Weeks to plot = 1..last_settled_week (empty if nothing settled yet)
-    weeks = [0] + list(range(1, last_settled_week + 1))
-
-    # ---- charts: build weekly cumulative series (unchanged logic) ----
-    bet_pnl_expr = Case(
-        When(status="WON", then=(F("stake_units") * (
-            Case(
-                When(american_odds__gte=100, then=(1 + F("american_odds") / 100.0)),
-                default=(1 + 100.0 / (F("american_odds") * -1.0))
-            ) - 1.0
-        ))),
-        When(status="LOST", then=(-1.0 * F("stake_units"))),
-        default=0.0, output_field=FloatField(),
-    )
-
-    indiv_by_team_week = (
-        Bet.objects.filter(season=season).exclude(status="PENDING")
-        .values("team__id", "team__name", "week")
-        .annotate(units=Sum(bet_pnl_expr))
-    )
-    parlay_by_team_week = (
-        TeamParlay.objects.filter(season=season).exclude(status="PENDING")
-        .values("team__id", "team__name", "week")
-        .annotate(
-            units=Sum(
-                Case(
-                    When(status="WON", then=(F("stake_units") * (F("decimal_odds") - 1.0))),
-                    When(status="LOST", then=(-1.0 * F("stake_units"))),
-                    default=0.0, output_field=FloatField(),
-                )
+    # ---------- STINKER chart (weeks with exactly 3 settled picks AND all 3 LOST) ----------
+    # Build one row per (user, week) with totals of each outcome
+    weekly = (
+        Bet.objects.filter(season=season)
+            .exclude(status="PENDING")
+            .values("user__username", "week")
+            .annotate(
+                total=Count("id"),
+                won=Sum(Case(When(status="WON",  then=1), default=0, output_field=IntegerField())),
+                lost=Sum(Case(When(status="LOST", then=1), default=0, output_field=IntegerField())),
+                push=Sum(Case(When(status="PUSH", then=1), default=0, output_field=IntegerField())),
             )
-        )
     )
 
-    team_week_delta = {}
-    for row in indiv_by_team_week:
-        team_week_delta.setdefault(row["team__name"], {}).setdefault(row["week"], 0.0)
-        team_week_delta[row["team__name"]][row["week"]] += float(row["units"] or 0.0)
-    for row in parlay_by_team_week:
-        team_week_delta.setdefault(row["team__name"], {}).setdefault(row["week"], 0.0)
-        team_week_delta[row["team__name"]][row["week"]] += float(row["units"] or 0.0)
+    # Qualifying weeks (exactly 3 settled picks)
+    stinker_weeks = weekly.filter(total=3, lost=3)  # 0–3
+    heater_weeks  = weekly.filter(total=3, won=3)   # 3–0
 
-    team_series = []
-    for team in season.teams.order_by("name"):
-        name = team.name
-        cum = 0.0
-        data = []
-        wk_map = team_week_delta.get(name, {})
-        for w in weeks:           # <-- only up to last_settled_week
-            cum += float(wk_map.get(w, 0.0))
-            data.append(round(cum, 4))
-        team_series.append({"label": name, "data": data})
-
-    user_by_week = (
-        Bet.objects.filter(season=season).exclude(status="PENDING")
-        .values("user__username", "week")
-        .annotate(units=Sum(bet_pnl_expr))
+    # Collapse to per-user COUNTS of DISTINCT weeks (protects against any dup rows)
+    stinker_counts = (
+        stinker_weeks.values("user__username")
+        .annotate(n=Count("week", distinct=True))
     )
-    user_week_delta = {}
-    for row in user_by_week:
-        user_week_delta.setdefault(row["user__username"], {})[row["week"]] = float(row["units"] or 0.0)
+    heater_counts = (
+        heater_weeks.values("user__username")
+        .annotate(n=Count("week", distinct=True))
+    )
 
-    user_series = []
-    usernames = Bet.objects.filter(season=season).values_list("user__username", flat=True).distinct()
-    for uname in sorted(set(usernames)):
-        cum = 0.0
-        data = []
-        wk_map = user_week_delta.get(uname, {})
-        for w in weeks:           # <-- only up to last_settled_week
-            cum += float(wk_map.get(w, 0.0))
-            data.append(round(cum, 4))
-        user_series.append({"label": uname, "data": data})
-    
-    from django.db.models import IntegerField, Count
-
+# Include all users, defaulting to 0
     all_usernames = list(
         Bet.objects.filter(season=season)
             .values_list("user__username", flat=True)
             .distinct()
     )
 
-    # Count weeks where a user had 3 settled bets and all 3 LOST
-    stinker_raw = (
-        Bet.objects.filter(season=season).exclude(status="PENDING")
-            .values("user__username", "week")
-            .annotate(
-                total=Count("id"),
-                lost=Sum(Case(When(status="LOST", then=1), default=0, output_field=IntegerField()))
-            )
-            .filter(total__gte=3, lost=3)
-            .values("user__username")
-            .annotate(stinks=Count("week"))
-    )
+    stinker_map = {row["user__username"]: row["n"] for row in stinker_counts}
+    heater_map  = {row["user__username"]: row["n"] for row in heater_counts}
 
-    stinker_map = {row["user__username"]: row["stinks"] for row in stinker_raw}
-
-    # Plot ALL users, defaulting to 0
     stinker_labels = sorted(all_usernames)
     stinker_data   = [int(stinker_map.get(u, 0)) for u in stinker_labels]
-        
 
+    heater_labels  = stinker_labels  # same order
+    heater_data    = [int(heater_map.get(u, 0)) for u in heater_labels]
+    
     return render(request, "league/standings.html", {
         "season": season,
         "teams": teams,
         "individuals": indiv,
-        "chart_weeks": weeks,                 # may be []
-        "team_chart_series": team_series,     # truncated to weeks
-        "user_chart_series": user_series,     # truncated to weeks
+        "chart_weeks": weeks,
+        "team_chart_series": team_series,
+        "user_chart_series": user_series,
         "last_settled_week": last_settled_week,
         "stinker_labels": stinker_labels,
         "stinker_data": stinker_data,
+        "heater_labels": heater_labels,
+        "heater_data": heater_data,
     })
+
 
 
 def user_stats(request, username: str):
@@ -467,25 +470,67 @@ def user_stats(request, username: str):
     return render(request, "league/user_stats.html", {"user_profile": user, "bets": bets, "biggest_hit": biggest_hit, "best_streak": best_streak})
 
 def landing(request):
-    """Send / straight to the latest season's dashboard (or admin if no season yet)."""
+    """
+    Root URL:
+    - If not logged in → go to login, then to after_login.
+    - If logged in → send straight to after_login.
+    """
+    next_url = reverse("after_login")
+    if not request.user.is_authenticated:
+        return redirect(f"{settings.LOGIN_URL}?next={next_url}")
+    return redirect("after_login")
+
+@login_required
+def after_login(request):
+    """
+    Decide where to land *after* authentication.
+    We send users to the Submit Picks week picker for the latest season.
+    """
     season = Season.objects.order_by("-year").first()
     if season:
-        return redirect("league_dashboard", season_year=season.year)
-    # No seasons yet—send the admin (you can change this to a friendly page)
-    return redirect("admin:index")
+        return redirect("submit_pick_week_picker", season_year=season.year)
+
+    # If no season yet: staff → admin; others → simple landing/standings page
+    if request.user.is_staff:
+        return redirect("admin:index")
+    return redirect("home")  # or a friendly page if you have one
 
 @login_required
 def submit_pick_week_picker(request, season_year: int):
     season = get_object_or_404(Season, year=season_year)
-    # ensure the user is on a team in this season
-    on_team = TeamMembership.objects.filter(user=request.user, team__season=season).exists()
-    if not on_team:
+
+    # must be on a team this season
+    if not TeamMembership.objects.filter(user=request.user, team__season=season).exists():
         return render(request, "league/submit_week_picker.html", {
             "season": season,
             "weeks": range(1, 19),
             "error": "You are not assigned to a team for this season.",
+            "weeks_complete": set(),
+            "weeks_parlay": set(),
         })
+
+    # what the user has saved
+    rows = (
+        Bet.objects
+        .filter(user=request.user, season=season)
+        .values("week", "bet_type", "parlay_selected")
+    )
+
+    per_week_types = {}
+    weeks_parlay = set()
+    for r in rows:
+        w = r["week"]
+        per_week_types.setdefault(w, set()).add(r["bet_type"])
+        if r["parlay_selected"]:
+            weeks_parlay.add(w)
+
+    # complete = has all three bet types saved
+    required = {"SPREAD", "TOTAL", "PROP"}
+    weeks_complete = {w for w, types in per_week_types.items() if required.issubset(types)}
+
     return render(request, "league/submit_week_picker.html", {
         "season": season,
-        "weeks": range(1, 19),  # regular season weeks 1–18
+        "weeks": range(1, 19),
+        "weeks_complete": weeks_complete,
+        "weeks_parlay": weeks_parlay,
     })

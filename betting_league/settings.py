@@ -159,7 +159,7 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # After login/logout, where should users go?
 LOGIN_URL = "/accounts/login/"
-LOGIN_REDIRECT_URL = "/"          # our landing view -> latest season dashboard
+LOGIN_REDIRECT_URL = "/after-login/"         
 LOGOUT_REDIRECT_URL = "/accounts/login/"  # or "/"
 
 # --- Security (only in production) ---

@@ -1,12 +1,52 @@
 {% extends "league/base.html" %}
-{% block title %}Submit Picks • {{ season.year }}{% endblock %}
+{% block title %}Submit Picks — Pick a Week ({{ season.year }}){% endblock %}
 {% block content %}
-<h2>Submit Picks — Choose Week ({{ season.year }})</h2>
-{% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
+<h2>Submit Picks — {{ season.year }}</h2>
 
-<div class="d-flex flex-wrap gap-2">
+{% if error %}<div style="color:#b00; margin:.5rem 0">{{ error }}</div>{% endif %}
+
+{# Django messages (success after saving) #}
+{% if messages %}
+  <ul style="list-style:none; padding:0; margin:0 0 12px 0;">
+    {% for message in messages %}
+      <li style="padding:8px 12px; border-radius:8px; margin-bottom:8px;
+                 {% if message.tags == 'success' %}background:#e7f8ef; border:1px solid #34d399;{% else %}background:#f8fafc; border:1px solid #cbd5e1;{% endif %}">
+        {{ message }}
+      </li>
+    {% endfor %}
+  </ul>
+{% endif %}
+
+<div style="display:flex; gap:16px; align-items:center; flex-wrap:wrap; margin:8px 0;">
+  <span><strong>Legend:</strong></span>
+
+  <span style="display:inline-flex; align-items:center; gap:6px;">
+    <span style="width:14px; height:14px; background:#e6ffed; border:1px solid #34d399; border-radius:4px; display:inline-block;"></span>
+    Complete (3 picks)
+  </span>
+
+  <span style="display:inline-flex; align-items:center; gap:6px;">
+    <span style="width:14px; height:14px; background:#e0f2fe; border:1px solid #38bdf8; border-radius:4px; display:inline-block;"></span>
+    Parlay selected
+  </span>
+</div>
+
+<div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(90px,1fr)); gap:12px; max-width:700px;">
   {% for w in weeks %}
-    <a class="btn btn-primary mb-2" href="{% url 'submit_pick' season.year w %}">Week {{ w }}</a>
+    <a href="{% url 'submit_pick' season.year w %}"
+       style="
+          display:block; text-align:center; padding:12px 10px; border-radius:10px; text-decoration:none;
+          border:1px solid {% if w in weeks_complete %}#34d399{% elif w in weeks_with_any %}#f59e0b{% else %}#e5e7eb{% endif %};
+          background:{% if w in weeks_complete %}#e6ffed{% elif w in weeks_with_any %}#fff7ed{% else %}#ffffff{% endif %};
+          color:#111827; position:relative;
+       ">
+      <div style="font-weight:600;">Week {{ w }}</div>
+      {% if w in weeks_parlay %}
+        <span style="position:absolute; top:8px; right:8px; font-size:12px; padding:2px 6px; border-radius:999px; background:#e0f2fe; border:1px solid #38bdf8;">
+          &#10003;
+        </span>
+      {% endif %}
+    </a>
   {% endfor %}
 </div>
 {% endblock %}

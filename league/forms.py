@@ -15,14 +15,12 @@ class BetSimpleForm(forms.ModelForm):
         model = Bet
         fields = ["pick_text", "line", "american_odds", "parlay_selected", "over_under"]
         widgets = {
-            # Mobile decimal keypad; allow +/− and a dot via pattern
             "line": forms.TextInput(attrs={
                 "inputmode": "decimal",
                 "pattern": r"[+-]?\d*\.?\d*",
                 "placeholder": "-3.5 or 47.5",
                 "autocomplete": "off",
             }),
-            # Mobile numeric keypad; allow optional leading +/− via pattern
             "american_odds": forms.TextInput(attrs={
                 "inputmode": "numeric",
                 "pattern": r"[+-]?\d*",
@@ -31,15 +29,26 @@ class BetSimpleForm(forms.ModelForm):
             }),
             "pick_text": forms.TextInput(attrs={
                 "autocomplete": "off",
+                # will be overridden per bet_type below
                 "placeholder": "e.g., KC -3.5 @ LAC",
             }),
         }
 
     def __init__(self, *args, **kwargs):
-        # accept bet_type from the view so we can show/hide Over/Under
-        self.bet_type = kwargs.pop("bet_type", "SPREAD")
+        # accept bet_type from the view; if not provided, infer from the form prefix
+        passed_bt = kwargs.pop("bet_type", None)
         super().__init__(*args, **kwargs)
+        self.bet_type = passed_bt or (self.prefix if self.prefix in ("SPREAD", "TOTAL", "PROP") else "SPREAD")
 
+        # Set pick_text placeholder per bet type
+        placeholders = {
+            "SPREAD": "e.g., Cardinals",
+            "TOTAL": "e.g., Eagles/Cowboys",
+            "PROP": "e.g., Drake Maye Passing Yds",
+        }
+        self.fields["pick_text"].widget.attrs["placeholder"] = placeholders.get(self.bet_type, "Enter pick")
+
+        # Show/hide Over/Under
         if self.bet_type in ("TOTAL", "PROP"):
             self.fields["over_under"].required = True
         else:

@@ -1,4 +1,4 @@
-# Register your models here.
+# league/admin.py
 from django.contrib import admin
 from django.utils import timezone
 from .models import Season, Team, TeamMembership, Bet, TeamParlay
@@ -45,8 +45,7 @@ def mark_push(modeladmin, request, queryset):
     _recompute_from_groups(groups)
     modeladmin.message_user(request, f"Marked {n} bets as PUSH and updated parlays.")
 
-
-@admin.action(description="Recompute parlay odds from selected legs")
+@admin.action(description="Recompute parlay odds from selected legs (booked price = product of all legs)")
 def recompute_parlay_odds(modeladmin, request, queryset):
     from .models import Bet
     updated = 0
@@ -54,38 +53,42 @@ def recompute_parlay_odds(modeladmin, request, queryset):
         legs = Bet.objects.filter(team=p.team, season=p.season, week=p.week, parlay_selected=True)
         dec = 1.0
         for b in legs:
+            # BOOKED price: product of ALL legs’ decimal odds, regardless of status
             dec *= b.decimal_odds
         p.decimal_odds = round(dec, 4)
         p.save(update_fields=["decimal_odds"])
         updated += 1
     modeladmin.message_user(request, f"Recomputed odds for {updated} parlays.")
 
-@admin.action(description="Set parlay status from legs (LOST if any LOST; WON if ≥1 WON and none pending/lost; PUSH if all PUSH)")
+@admin.action(description="Set parlay STATUS from legs (odds stay as booked full product)")
 def settle_parlay_from_legs(modeladmin, request, queryset):
     from .models import Bet
     updated = 0
     for p in queryset:
         legs = list(Bet.objects.filter(team=p.team, season=p.season, week=p.week, parlay_selected=True))
+
+        # ----- Status only -----
         if any(l.status == "LOST" for l in legs):
             p.status = "LOST"
         elif any(l.status == "PENDING" for l in legs) or not legs:
             p.status = "PENDING"
-        elif any(l.status == "WON" for l in legs):
-            p.status = "WON"
         elif all(l.status == "PUSH" for l in legs):
             p.status = "PUSH"
         else:
-            p.status = "PENDING"
-        # also recompute odds product with pushes = 1.0
-        dec = 1.0
+            # at least one WON and none pending/lost (others may be PUSH)
+            p.status = "WON"
+
+        # ----- Odds: ALWAYS full booked price (all legs), independent of status -----
+        dec_all = 1.0
         for l in legs:
-            if l.status == "WON":
-                dec *= l.decimal_odds
-        p.decimal_odds = round(dec, 4)
+            dec_all *= l.decimal_odds
+        p.decimal_odds = round(dec_all, 4)
+
         p.save(update_fields=["status", "decimal_odds"])
         updated += 1
     modeladmin.message_user(request, f"Updated {updated} parlays from legs.")
-    
+
+# ---------- Model admin registrations ----------
 @admin.register(Season)
 class SeasonAdmin(admin.ModelAdmin):
     list_display = ("year", "start_date", "end_date")

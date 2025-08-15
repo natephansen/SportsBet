@@ -1,6 +1,6 @@
 from functools import reduce
 from operator import mul
-from .models import Bet, TeamParlay,Team, Season
+from .models import Bet, TeamParlay, Team, Season
 from decimal import Decimal
 from django.db import transaction
 
@@ -20,44 +20,34 @@ def recompute_team_parlay(team, season_year: int, week: int) -> TeamParlay:
 
     parlay, _ = TeamParlay.objects.get_or_create(team=team, season=season, week=week)
 
-    # Compute product of non-push legs (push contributes 1.0)
-    dec = Decimal("1")
-    pending = lost = won = push = 0
+    # (A) BOOKED price: product of ALL legs’ quoted prices (sportsbook-style),
+    #     regardless of status. This is what we ALWAYS show.
+    dec_all = Decimal("1")
     for b in legs:
-        if b.status == "PENDING":
-            pending += 1
-        elif b.status == "LOST":
-            lost += 1
-        elif b.status == "WON":
-            won += 1
-            dec *= american_to_decimal(int(b.american_odds))
-        elif b.status == "PUSH":
-            push += 1
-            # multiply by 1 → no change
-        else:
-            # treat unknown as pending
-            pending += 1
+        try:
+            dec_all *= american_to_decimal(int(b.american_odds))
+        except Exception:
+            # be defensive if odds are missing
+            dec_all *= Decimal("1")
 
-    parlay.decimal_odds = float(round(dec, 4))  # stake stays as-is
+    parlay.decimal_odds = float(round(dec_all, 4))  # <- THIS is the one you display
 
-    # Status rules:
-    # - any LOST → LOST
-    # - else any PENDING → PENDING
-    # - else if won >= 1 → WON (with reduced legs if any PUSH)
-    # - else if push == len(legs) and len(legs) > 0 → PUSH (full refund)
-    # - else if no legs selected → PENDING (not formed yet)
-    if lost >= 1:
+    # (B) Status logic (unchanged semantics)
+    lost = any(l.status == "LOST" for l in legs)
+    pending = any(l.status == "PENDING" for l in legs)
+    all_push = len(legs) > 0 and all(l.status == "PUSH" for l in legs)
+
+    if not legs:
+        parlay.status = "PENDING"
+    elif lost:
         parlay.status = "LOST"
-    elif pending >= 1:
+    elif pending:
         parlay.status = "PENDING"
-    elif len(legs) == 0:
-        parlay.status = "PENDING"
-    elif won >= 1:
-        parlay.status = "WON"
-    elif push == len(legs):
+    elif all_push:
         parlay.status = "PUSH"
     else:
-        parlay.status = "PENDING"
+        # no lost, no pending, and not all push -> at least one WON (others may be PUSH)
+        parlay.status = "WON"
 
     parlay.save()
     return parlay

@@ -13,42 +13,158 @@
     crossorigin="anonymous"
   >
 
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@700;800&display=swap" rel="stylesheet">
+
   <style>
-    :root { --brand: #6f2dbd; }
-    .navbar-brand { color: var(--brand) !important; font-weight: 800; letter-spacing: .2px; }
-    a { text-decoration: none; }
+    /* Light defaults */
+    :root {
+      --bg: #f8fafc;           /* page background */
+      --panel: #ffffff;        /* cards/tables/nav */
+      --fg: #0f172a;           /* main text */
+      --muted: #475569;        /* secondary */
+      --border: #e5e7eb;       /* borders */
+      --grid: rgba(15,23,42,.10); /* chart grid (light) */
+      --brand: #6f2dbd;             /* purple in light mode */
+      --brand-hover: #8456d4;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--fg);
+    }
+
+    /* Dark theme overrides */
+    body[data-theme="dark"] {
+      --bg: #0b1220;
+      --panel: #0f172a;
+      --fg: #e5e7eb;
+      --muted: #94a3b8;
+      --border: #334155;
+      --grid: rgba(148,163,184,.22); /* chart grid (dark) */
+      --brand: #bca4ff;             /* softer purple for dark mode */
+      --brand-hover: #d5c8ff;
+    }
+
+    /* Make common surfaces follow theme */
+    .navbar,
+    .bg-body-tertiary,
+    footer,
+    .table {
+      background-color: var(--panel) !important;
+      color: var(--fg);
+      border-color: var(--border);
+    }
+    .table > :not(caption) > * > * { /* table cell borders */
+      border-color: var(--border);
+    }
+    .table-striped > tbody > tr:nth-of-type(odd) {
+      --bs-table-accent-bg: color-mix(in srgb, var(--panel) 92%, var(--fg) 8%);
+    }
+    /* Make Bootstrap's base vars follow our theme */
+    body {
+      --bs-body-bg: var(--bg);
+      --bs-body-color: var(--fg);
+      --bs-border-color: var(--border);
+    }
+
+    /* Navbar (brand/links/toggler) */
+    .navbar {
+      background-color: var(--panel) !important;
+      border-bottom: 1px solid var(--border);
+
+      /* feed Bootstrap's navbar vars */
+      --bs-navbar-color: var(--fg);
+      --bs-navbar-hover-color: var(--fg);
+      --bs-navbar-disabled-color: color-mix(in srgb, var(--fg) 45%, transparent);
+      --bs-navbar-brand-color: var(--fg);
+      --bs-navbar-brand-hover-color: var(--fg);
+      --bs-navbar-toggler-border-color: var(--border);
+    }
+    body[data-theme="dark"] .navbar .navbar-toggler-icon { filter: invert(1); opacity: .8; }
+
+    /* Tables (striped/hovered/etc.) */
+    .table {
+      --bs-table-bg: var(--panel);
+      --bs-table-color: var(--fg);
+      --bs-table-border-color: var(--border);
+
+      /* striped/hover rows derived from our colors */
+      --bs-table-striped-bg: color-mix(in srgb, var(--panel) 90%, var(--fg) 10%);
+      --bs-table-striped-color: var(--fg);
+      --bs-table-hover-bg:    color-mix(in srgb, var(--panel) 88%, var(--fg) 12%);
+      --bs-table-hover-color: var(--fg);
+    }
+
+    /* Optional: links contrast in dark mode */
+    :root { --bs-link-color: #0d6efd; }
+    body[data-theme="dark"] { --bs-link-color: #93c5fd; }
+    /* make the brand always use the purple + custom font */
+    .navbar-brand {
+      color: var(--brand) !important;
+      font-family: "Poppins", system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Liberation Sans", sans-serif;
+      font-weight: 800;
+      letter-spacing: .3px;
+      text-decoration: none !important;
+    }
+    .navbar-brand:hover { color: var(--brand-hover) !important; }
   </style>
+
+  <meta name="color-scheme" content="light dark">
+  <script>
+    (() => {
+      const saved = localStorage.getItem('theme');
+      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      const theme = saved || (prefersDark ? 'dark' : 'light');
+      document.documentElement.setAttribute('data-bs-theme', theme);
+    })();
+  </script>
 
   {% block extra_head %}{% endblock %}
 </head>
-<body class="bg-light">
+<body class="theme">
+
   <!-- Top nav -->
   <nav class="navbar navbar-expand-lg bg-body-tertiary border-bottom">
     <div class="container">
       <a class="navbar-brand" href="{% url 'home' %}">Betting League</a>
 
-      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#mainNav">
+      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#mainNav"
+              aria-controls="mainNav" aria-expanded="false" aria-label="Toggle navigation">
         <span class="navbar-toggler-icon"></span>
       </button>
 
       <div id="mainNav" class="collapse navbar-collapse">
+        {% with url_name=request.resolver_match.url_name %}
         <ul class="navbar-nav me-auto mb-2 mb-lg-0">
           {% if season %}
-            <li class="nav-item"><a class="nav-link" href="{% url 'standings' season.year %}">Standings</a></li>
-            <li class="nav-item"><a class="nav-link" href="{% url 'league_dashboard' season.year %}">Dashboard</a></li>
+            <li class="nav-item">
+              <a class="nav-link {% if url_name == 'standings' %}active{% endif %}"
+                 href="{% url 'standings' season.year %}">Standings</a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link {% if url_name == 'league_dashboard' %}active{% endif %}"
+                 href="{% url 'league_dashboard' season.year %}">Dashboard</a>
+            </li>
             {% if user.is_authenticated %}
-              <li class="nav-item"><a class="nav-link" href="{% url 'submit_pick_week_picker' season.year %}">Submit Picks</a></li>
+              <li class="nav-item">
+                <a class="nav-link {% if url_name == 'submit_pick_week_picker' %}active{% endif %}"
+                   href="{% url 'submit_pick_week_picker' season.year %}">Submit Picks</a>
+              </li>
             {% endif %}
           {% endif %}
+          {% if user.is_staff %}
+            <li class="nav-item">
+              <a class="nav-link" href="{% url 'admin:index' %}">Admin</a>
+            </li>
+          {% endif %}
         </ul>
+        {% endwith %}
 
         <div class="d-flex align-items-center">
           {% if user.is_authenticated %}
             <span class="me-2 text-secondary">Hi, {{ user.username }}</span>
             <form method="post" action="{% url 'logout' %}" class="d-inline">
               {% csrf_token %}
-              <!-- If you want to force redirect to login without touching settings, keep this: -->
-              <!-- <input type="hidden" name="next" value="{% url 'login' %}"> -->
               <button type="submit" class="btn btn-outline-secondary btn-sm">Logout</button>
             </form>
           {% else %}
@@ -56,20 +172,32 @@
           {% endif %}
         </div>
       </div>
+      <button id="themeToggle" class="btn btn-outline-secondary btn-sm" onclick="toggleTheme()">Dark</button>
+      <script>
+        // set initial label
+        (function(){
+          const btn = document.getElementById('themeToggle');
+          if (btn) btn.textContent = document.documentElement.classList.contains('dark') ? 'Light' : 'Dark';
+        })();
+      </script>
     </div>
   </nav>
 
   <!-- Page content -->
   <main class="container my-4">
-    {% if messages %}
-      <div class="mb-3">
-        {% for message in messages %}
-          <div class="alert alert-{{ message.tags|default:'secondary' }} mb-2" role="alert">
-            {{ message }}
-          </div>
-        {% endfor %}
-      </div>
-    {% endif %}
+
+    <!-- JS-disabled fallback for messages -->
+    <noscript>
+      {% if messages %}
+        <div class="mb-3">
+          {% for message in messages %}
+            <div class="alert alert-{{ message.tags|default:'secondary' }} mb-2" role="alert">
+              {{ message }}
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    </noscript>
 
     {% block content %}{% endblock %}
   </main>
@@ -80,6 +208,25 @@
     </div>
   </footer>
 
+  <!-- Toasts (messages) -->
+  <div class="toast-container position-fixed bottom-0 end-0 p-3">
+    {% if messages %}
+      {% for message in messages %}
+        <div class="toast align-items-center text-bg-{{ message.tags|default:'secondary' }} border-0"
+             role="status" aria-live="polite" aria-atomic="true"
+             data-bs-autohide="true" data-bs-delay="3500">
+          <div class="d-flex">
+            <div class="toast-body">
+              {{ message }}
+            </div>
+            <button type="button" class="btn-close btn-close-white me-2 m-auto"
+                    data-bs-dismiss="toast" aria-label="Close"></button>
+          </div>
+        </div>
+      {% endfor %}
+    {% endif %}
+  </div>
+
   <!-- Bootstrap JS -->
   <script
     src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
@@ -87,6 +234,42 @@
     crossorigin="anonymous">
   </script>
 
+  <!-- Auto-show toasts -->
+  <script>
+    (function () {
+      var els = document.querySelectorAll('.toast');
+      els.forEach(function (el) {
+        try { new bootstrap.Toast(el).show(); } catch (e) {}
+      });
+    })();
+  </script>
+
   {% block extra_scripts %}{% endblock %}
+  <script>
+  (function () {
+    const STORAGE_KEY = "theme";
+    const body = document.body;
+
+    function applyTheme(t) {
+      body.dataset.theme = t;           // our custom theme
+      body.setAttribute('data-bs-theme', t); // <-- tells Bootstrap to flip its variables
+      localStorage.setItem(STORAGE_KEY, t);
+      window.dispatchEvent(new CustomEvent("themechange", { detail: { theme: t }}));
+    }
+
+    // Initial theme
+    applyTheme(localStorage.getItem(STORAGE_KEY) || "light");
+
+    // Your existing toggle
+    const btn = document.getElementById("themeToggle");
+    if (btn) {
+      btn.addEventListener("click", () => {
+        applyTheme(body.dataset.theme === "dark" ? "light" : "dark");
+        btn.textContent = body.dataset.theme === "dark" ? "Light" : "Dark";
+      });
+      btn.textContent = body.dataset.theme === "dark" ? "Light" : "Dark";
+    }
+  })();
+  </script>
 </body>
 </html>

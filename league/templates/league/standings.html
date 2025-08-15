@@ -69,13 +69,14 @@
   <h3 style="margin-bottom:8px;">Individual Units (Cumulative by Week)</h3>
   <div class="chart-box"><canvas id="usersChart"></canvas></div>
 
-  <h3 style="margin-bottom:4px;">
-    STINKER Plot
-    <small style="font-weight:normal; display:block; margin-top:4px;">
-      If you went 0/3 any given week you are STINKY!!! Here lies the tally of our STINKERS.
-    </small>
-  </h3>
+  <h3 style="margin-bottom:8px;">Pee-yew Stinky</h3>
+  <p style="margin-top:-6px; color:#64748b;">If you went 0/3 any given week you are STINKY!!! Here lies the tally of our STINKERS.</p>
   <div class="chart-box"><canvas id="stinkyChart"></canvas></div>
+
+  {# NEW: HEATER plot #}
+  <h3 style="margin-bottom:8px;">Feelin' Hot, Hot, Hot</h3>
+  <p style="margin-top:-6px; color:#64748b;">How many weeks each user went a perfect 3/3.</p>
+  <div class="chart-box"><canvas id="heaterChart"></canvas></div>
 
   {# Safely embed data as JSON #}
   {{ chart_weeks|json_script:"chart-labels" }}
@@ -83,6 +84,8 @@
   {{ user_chart_series|json_script:"user-series-data" }}
   {{ stinker_labels|json_script:"stinky-labels" }}
   {{ stinker_data|json_script:"stinky-data" }}
+  {{ heater_labels|json_script:"heater-labels" }}
+  {{ heater_data|json_script:"heater-data" }}
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script>
@@ -90,74 +93,120 @@
     const labels       = JSON.parse(document.getElementById('chart-labels').textContent);
     const teamSeries   = JSON.parse(document.getElementById('team-series-data').textContent);
     const userSeries   = JSON.parse(document.getElementById('user-series-data').textContent);
-    const stinkyLabels = JSON.parse(document.getElementById('stinky-labels').textContent || "[]");
-    const stinkyData   = JSON.parse(document.getElementById('stinky-data').textContent   || "[]");
+    const stinkyLabels = JSON.parse((document.getElementById('stinky-labels')||{}).textContent || "[]");
+    const stinkyData   = JSON.parse((document.getElementById('stinky-data')||{}).textContent || "[]");
+    const heaterLabels = JSON.parse((document.getElementById('heater-labels')||{}).textContent || "[]");
+    const heaterData   = JSON.parse((document.getElementById('heater-data')||{}).textContent || "[]");
 
+    // -- helpers ---------------------------------------------------------------
+    function cssVar(name){
+      return getComputedStyle(document.body).getPropertyValue(name).trim();
+    }
+    function themeColors() {
+      return {
+        text: cssVar('--fg') || '#0f172a',
+        grid: cssVar('--grid') || 'rgba(15,23,42,.1)',
+        border: cssVar('--border') || '#e5e7eb',
+        legend: cssVar('--fg') || '#0f172a',
+      };
+    }
+    function commonOptions() {
+      const c = themeColors();
+      return {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'nearest', intersect: false },
+        plugins: {
+          legend: { position: 'bottom', labels: { usePointStyle: true, boxWidth: 10, color: c.legend } },
+          tooltip: { bodyColor: c.text, titleColor: c.text }
+        },
+        scales: {
+          x: {
+            ticks: { color: c.text },
+            grid:  { color: c.grid }
+          },
+          y: {
+            ticks: { color: c.text },
+            grid:  { color: c.grid },
+            beginAtZero: true
+          }
+        }
+      };
+    }
     function toDatasets(series) {
       return series.map(s => ({
-        label: s.label,
-        data: s.data,
-        fill: false,
-        tension: 0.25,
-        pointRadius: 2,
-        borderWidth: 2,
-        spanGaps: true
+        label: s.label, data: s.data,
+        fill: false, tension: 0.25, pointRadius: 2, borderWidth: 2, spanGaps: true
       }));
     }
 
-    // (4) Mobile-friendly chart options
-    const commonOpts = {
-      responsive: true,
-      maintainAspectRatio: false,   // key for .chart-box heights
-      interaction: { mode: 'nearest', intersect: false },
-      plugins: {
-        legend: { position: 'bottom', labels: { usePointStyle: true, boxWidth: 10 } },
-        tooltip: { callbacks: { label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y}` } }
-      },
-      scales: {
-        x: { title: { display: true, text: 'Week' } },
-        y: { title: { display: true, text: 'Cumulative Units' }, beginAtZero: true }
-      }
-    };
+    // -- create charts ---------------------------------------------------------
+    const charts = [];
 
-    new Chart(document.getElementById('teamsChart').getContext('2d'), {
+    const teamsChart = new Chart(document.getElementById('teamsChart').getContext('2d'), {
       type: 'line',
-      data: { labels: labels, datasets: toDatasets(teamSeries) },
-      options: commonOpts
+      data: { labels, datasets: toDatasets(teamSeries) },
+      options: commonOptions()
     });
+    charts.push(teamsChart);
 
-    new Chart(document.getElementById('usersChart').getContext('2d'), {
+    const usersChart = new Chart(document.getElementById('usersChart').getContext('2d'), {
       type: 'line',
-      data: { labels: labels, datasets: toDatasets(userSeries) },
-      options: commonOpts
+      data: { labels, datasets: toDatasets(userSeries) },
+      options: commonOptions()
     });
+    charts.push(usersChart);
 
     if (stinkyLabels.length) {
-      new Chart(document.getElementById('stinkyChart').getContext('2d'), {
+      const stinky = new Chart(document.getElementById('stinkyChart').getContext('2d'), {
         type: 'bar',
-        data: {
-          labels: stinkyLabels,
-          datasets: [{ label: 'Stinker Weeks (0/3)', data: stinkyData, borderWidth: 1 }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,  // matches .chart-box
-          plugins: { legend: { display: false } },
-          scales: {
-            x: { title: { display: true, text: 'User' } },
-            y: {
-              beginAtZero: true,
-              title: { display: true, text: 'Weeks as a STINKER' },
-              ticks: { precision: 0, stepSize: 1 }
-            }
-          }
+        data: { labels: stinkyLabels, datasets: [{ label: 'Stinker Weeks (0/3)', data: stinkyData, borderWidth: 1 }] },
+        options: (function(){
+          const o = commonOptions();
+          o.plugins.legend.display = false;
+          o.scales.y.ticks.stepSize = 1;
+          return o;
+        })()
+      });
+      charts.push(stinky);
+    }
+
+    if (heaterLabels.length) {
+      const heater = new Chart(document.getElementById('heaterChart').getContext('2d'), {
+        type: 'bar',
+        data: { labels: heaterLabels, datasets: [{ label: 'Perfect Weeks (3/3)', data: heaterData, borderWidth: 1 }] },
+        options: (function(){
+          const o = commonOptions();
+          o.plugins.legend.display = false;
+          o.scales.y.ticks.stepSize = 1;
+          return o;
+        })()
+      });
+      charts.push(heater);
+    }
+
+    // -- live theme updates ----------------------------------------------------
+    function reColorCharts() {
+      const c = themeColors();
+      charts.forEach(ch => {
+        // legend/tooltip
+        ch.options.plugins.legend.labels.color = c.legend;
+        if (ch.options.plugins.tooltip) {
+          ch.options.plugins.tooltip.bodyColor = c.text;
+          ch.options.plugins.tooltip.titleColor = c.text;
         }
+        // axes
+        ch.options.scales.x.ticks.color = c.text;
+        ch.options.scales.y.ticks.color = c.text;
+        ch.options.scales.x.grid.color  = c.grid;
+        ch.options.scales.y.grid.color  = c.grid;
+        ch.update();
       });
     }
+    window.addEventListener('themechange', reColorCharts);
   })();
   </script>
 {% else %}
   <p><em>No settled weeks yet—charts will appear once Week 1 is settled.</em></p>
 {% endif %}
 {% endblock %}
-
