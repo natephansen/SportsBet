@@ -395,27 +395,34 @@ def standings(request, season_year: int):
             data.append(round(cum, 4))
         user_series.append({"label": uname, "data": data})
 
-    # ---------- STINKER/HEATER charts (robust for Postgres) ----------
+    # ---------- STINKER/HEATER charts (portable across SQLite/Postgres) ----------
     weekly = (
         Bet.objects.filter(season=season)
             .exclude(status="PENDING")
             .values("user_id", "user__username", "week")
             .annotate(
-                wins=Count("id", filter=Q(status="WON")),
-                losses=Count("id", filter=Q(status="LOST")),
+            # Sum conditional 1s instead of Count(filter=...)
+                wins=Sum(Case(When(status="WON",  then=1),
+                                default=0, output_field=IntegerField())),
+                losses=Sum(Case(When(status="LOST", then=1),
+                                default=0, output_field=IntegerField())),
+                pushes=Sum(Case(When(status="PUSH", then=1),
+                                default=0, output_field=IntegerField())),
             )
     )
 
-    # Exactly 3 settled picks: either 3L / 0W (stinker) or 3W / 0L (heater)
+    # Exactly 3 settled picks:
+    #   stinker = 0 wins, 3 losses (pushes must be 0)
+    #   heater  = 3 wins, 0 losses (pushes must be 0)
     stinker_counts = (
-        weekly.filter(wins=0, losses=3)
+        weekly.filter(wins=0, losses=3, pushes=0)
             .values("user__username")
             .annotate(n=Count("week", distinct=True))
             .order_by("user__username")
     )
 
     heater_counts = (
-        weekly.filter(wins=3, losses=0)
+        weekly.filter(wins=3, losses=0, pushes=0)
             .values("user__username")
             .annotate(n=Count("week", distinct=True))
             .order_by("user__username")
@@ -436,6 +443,7 @@ def standings(request, season_year: int):
 
     heater_labels  = all_usernames
     heater_data    = [int(heater_map.get(u, 0)) for u in heater_labels]
+
 
     return render(request, "league/standings.html", {
         "season": season,
