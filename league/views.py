@@ -18,6 +18,7 @@ from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 from django.utils import timezone
 from django.http import JsonResponse
+from collections import defaultdict, Counter
 
 class BetForm(forms.ModelForm):
     class Meta:
@@ -395,39 +396,31 @@ def standings(request, season_year: int):
             data.append(round(cum, 4))
         user_series.append({"label": uname, "data": data})
 
-    # ---------- STINKER/HEATER charts (portable across SQLite/Postgres) ----------
-    weekly = (
+    # ---------- STINKER/HEATER charts (portable, computed in Python) ----------
+    # Pull the settled rows we need (username, week, status)
+    rows = list(
         Bet.objects.filter(season=season)
             .exclude(status="PENDING")
-            .values("user_id", "user__username", "week")
-            .annotate(
-            # Sum conditional 1s instead of Count(filter=...)
-                wins=Sum(Case(When(status="WON",  then=1),
-                                default=0, output_field=IntegerField())),
-                losses=Sum(Case(When(status="LOST", then=1),
-                                default=0, output_field=IntegerField())),
-                pushes=Sum(Case(When(status="PUSH", then=1),
-                                default=0, output_field=IntegerField())),
-            )
+            .values_list("user__username", "week", "status")
     )
 
-    # Exactly 3 settled picks:
-    #   stinker = 0 wins, 3 losses (pushes must be 0)
-    #   heater  = 3 wins, 0 losses (pushes must be 0)
-    stinker_counts = (
-        weekly.filter(wins=0, losses=3, pushes=0)
-            .values("user__username")
-            .annotate(n=Count("week", distinct=True))
-            .order_by("user__username")
-    )
+    # Count outcomes per (user, week)
+    per_week = defaultdict(lambda: {"WON": 0, "LOST": 0, "PUSH": 0})
+    for uname, week, status in rows:
+        if status in ("WON", "LOST", "PUSH"):
+            per_week[(uname, week)][status] += 1
 
-    heater_counts = (
-        weekly.filter(wins=3, losses=0, pushes=0)
-            .values("user__username")
-            .annotate(n=Count("week", distinct=True))
-            .order_by("user__username")
-    )
+    # Tally stinkers/heaters per user
+    stinker_cnt = Counter()
+    heater_cnt  = Counter()
+    for (uname, week), c in per_week.items():
+        # exactly 3 settled picks with no pushes
+        if c["WON"] == 0 and c["LOST"] == 3 and c["PUSH"] == 0:
+            stinker_cnt[uname] += 1
+        if c["WON"] == 3 and c["LOST"] == 0 and c["PUSH"] == 0:
+            heater_cnt[uname]  += 1
 
+    # Make sure every user with any bet this season is on the axis
     all_usernames = list(
         Bet.objects.filter(season=season)
             .values_list("user__username", flat=True)
@@ -435,14 +428,11 @@ def standings(request, season_year: int):
             .order_by("user__username")
     )
 
-    stinker_map = {r["user__username"]: r["n"] for r in stinker_counts}
-    heater_map  = {r["user__username"]: r["n"] for r in heater_counts}
-
     stinker_labels = all_usernames
-    stinker_data   = [int(stinker_map.get(u, 0)) for u in stinker_labels]
+    stinker_data   = [int(stinker_cnt.get(u, 0)) for u in stinker_labels]
 
     heater_labels  = all_usernames
-    heater_data    = [int(heater_map.get(u, 0)) for u in heater_labels]
+    heater_data    = [int(heater_cnt.get(u, 0)) for u in heater_labels]
 
 
     return render(request, "league/standings.html", {
