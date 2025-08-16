@@ -540,6 +540,15 @@ def submit_pick_week_picker(request, season_year: int):
 def standings_data_debug(request, season_year: int):
     season = get_object_or_404(Season, year=season_year)
 
+    # What statuses does prod actually have?
+    statuses = list(
+        Bet.objects.filter(season=season)
+        .values_list("status", flat=True)
+        .distinct()
+        .order_by("status")
+    )
+
+    # Weekly roll-up (per user/week)
     weekly = (
         Bet.objects.filter(season=season)
           .exclude(status="PENDING")
@@ -547,37 +556,49 @@ def standings_data_debug(request, season_year: int):
           .annotate(
               wins=Count("id", filter=Q(status="WON")),
               losses=Count("id", filter=Q(status="LOST")),
+              pushes=Count("id", filter=Q(status="PUSH")),
               settled_cnt=Count("id", filter=Q(status__in=["WON", "LOST"])),
+              total_cnt=Count("id"),
           )
+          .order_by("week", "user__username")
     )
 
-    stinker_weeks = weekly.filter(settled_cnt=3, losses=3)  # 0-3
-    heater_weeks  = weekly.filter(settled_cnt=3, wins=3)    # 3-0
+    # Identify 0-3 and 3-0 weeks
+    stinker_weeks = weekly.filter(settled_cnt=3, losses=3)
+    heater_weeks  = weekly.filter(settled_cnt=3, wins=3)
 
     stinker_counts = (
         stinker_weeks.values("user_id", "user__username")
         .annotate(n=Count("week", distinct=True))
+        .order_by("user__username")
     )
     heater_counts = (
         heater_weeks.values("user_id", "user__username")
         .annotate(n=Count("week", distinct=True))
+        .order_by("user__username")
     )
 
     all_usernames = list(
         Bet.objects.filter(season=season)
           .values_list("user__username", flat=True)
           .distinct()
+          .order_by("user__username")
     )
 
     stinker_map = {r["user__username"]: r["n"] for r in stinker_counts}
     heater_map  = {r["user__username"]: r["n"] for r in heater_counts}
 
-    stinker_labels = sorted(all_usernames)
+    stinker_labels = all_usernames
     stinker_data   = [int(stinker_map.get(u, 0)) for u in stinker_labels]
-    heater_labels  = stinker_labels
+    heater_labels  = all_usernames
     heater_data    = [int(heater_map.get(u, 0)) for u in heater_labels]
 
+    # Include a small preview of the weekly roll-up so we can see what prod computed
+    weekly_preview = list(weekly[:50])
+
     return JsonResponse({
+        "statuses": statuses,
+        "weekly_preview": weekly_preview,
         "stinker_labels": stinker_labels,
         "stinker_data": stinker_data,
         "heater_labels": heater_labels,
