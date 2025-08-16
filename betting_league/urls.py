@@ -17,9 +17,11 @@ Including another URLconf
 # betting_league/urls.py
 from django.contrib import admin
 from django.urls import path, include
+from league import views
 
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("", include("league.urls")),  # delegate all site routes to the league app
+    path("debug/standings-data/<int:season_year>/", views.standings_data_debug, name="standings_data_debug"),
 ]
 
