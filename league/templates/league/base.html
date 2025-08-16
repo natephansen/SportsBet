@@ -80,7 +80,9 @@
       --bs-navbar-brand-hover-color: var(--fg);
       --bs-navbar-toggler-border-color: var(--border);
     }
-    body[data-theme="dark"] .navbar .navbar-toggler-icon { filter: invert(1); opacity: .8; }
+    .navbar-toggler-icon {
+      background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 30'%3e%3cpath stroke='%230f172a' stroke-linecap='round' stroke-miterlimit='10' stroke-width='2' d='M4 7h22M4 15h22M4 23h22'/%3e%3c/svg%3e") !important;
+    }
 
     /* Tables (striped/hovered/etc.) */
     .table {
@@ -107,6 +109,10 @@
       text-decoration: none !important;
     }
     .navbar-brand:hover { color: var(--brand-hover) !important; }
+    .navbar-toggler-icon {
+      background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 30'%3e%3cpath stroke='%23e5e7eb' stroke-linecap='round' stroke-miterlimit='10' stroke-width='2' d='M4 7h22M4 15h22M4 23h22'/%3e%3c/svg%3e") !important;
+    }
+    .navbar-toggler { border-color: var(--border) !important; }
   </style>
 
   <meta name="color-scheme" content="light dark">
