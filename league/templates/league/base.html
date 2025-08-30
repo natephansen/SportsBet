@@ -156,6 +156,9 @@
                 <a class="nav-link {% if url_name == 'submit_pick_week_picker' %}active{% endif %}"
                    href="{% url 'submit_pick_week_picker' season.year %}">Submit Picks</a>
               </li>
+              <li class="nav-item"><a class="nav-link" 
+                  href="{% url 'futures_board' season.year %}">Futures</a>
+              </li>
             {% endif %}
           {% endif %}
           {% if user.is_staff %}

@@ -12,5 +12,7 @@ urlpatterns = [
     path("submit/<int:season_year>/", views.submit_pick_week_picker, name="submit_pick_week_picker"),
     path("stats/<str:username>/", views.user_stats, name="user_stats"),
     path("accounts/profile/", views.landing, name="profile_redirect"),
+    path("futures/<int:season_year>/", views.futures_board,  name="futures_board"),
+    path("futures/<int:season_year>/edit/", views.submit_futures, name="submit_futures"),
 ]
 

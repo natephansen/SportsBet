@@ -17,6 +17,25 @@
   </ul>
 {% endif %}
 
+<!-- Team Futures card -->
+<div class="card mb-3">
+  <div class="card-body d-flex align-items-center justify-content-between">
+    <div>
+      <div class="fw-bold">Team Futures</div>
+      {% if futures_complete %}
+        <div class="text-success small">Complete ✓</div>
+      {% else %}
+        <div class="text-warning small">
+          Needs {{ futures_needed }} more pick{{ futures_needed|pluralize }}
+        </div>
+      {% endif %}
+    </div>
+    <a class="btn btn-outline-primary btn-sm" href="{% url 'submit_futures' season.year %}">
+      {{ futures_complete|yesno:"Edit,Add" }} Futures
+    </a>
+  </div>
+</div>
+
 <div style="display:flex; gap:16px; align-items:center; flex-wrap:wrap; margin:8px 0;">
   <span><strong>Legend:</strong></span>
 

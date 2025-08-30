@@ -144,3 +144,34 @@ class TeamParlay(models.Model):
         if self.status == "LOST":
             return -self.stake_units
         return 0.0
+    
+class FuturePick(models.Model):
+    team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="futures")
+    season = models.ForeignKey(Season, on_delete=models.CASCADE, related_name="futures")
+    index = models.PositiveSmallIntegerField(help_text="1..3")
+    pick_text = models.CharField(max_length=255)
+    american_odds = models.IntegerField(help_text="e.g., -110, +350")
+    stake_units = models.FloatField(default=1.0)
+    status = models.CharField(max_length=10, choices=BET_STATUS, default="PENDING")
+    settled_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        unique_together = ("team", "season", "index")   # enforce one set of 3 per team
+
+    def __str__(self):
+        return f"Futures [{self.team.name} {self.season.year}] #{self.index}: {self.pick_text}"
+
+    @property
+    def decimal_odds(self) -> float:
+        return american_to_decimal(self.american_odds)
+
+    @property
+    def pnl_units(self) -> float:
+        if self.status == "WON":
+            return self.stake_units * (self.decimal_odds - 1.0)
+        if self.status == "LOST":
+            return -self.stake_units
+        if self.status == "PUSH":
+            return 0.0
+        return 0.0

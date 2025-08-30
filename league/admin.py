@@ -3,6 +3,7 @@ from django.contrib import admin
 from django.utils import timezone
 from .models import Season, Team, TeamMembership, Bet, TeamParlay
 from .sevices import recompute_team_parlay
+from .models import FuturePick
 
 # ---------- Admin actions ----------
 def _affected_groups(qs):
@@ -117,3 +118,31 @@ class TeamParlayAdmin(admin.ModelAdmin):
     list_display = ("team", "season", "week", "decimal_odds", "stake_units", "status", "updated_at")
     list_filter = ("season", "team", "week", "status")
     actions = [recompute_parlay_odds, settle_parlay_from_legs, mark_won, mark_lost, mark_pending]
+
+@admin.action(description="Mark selected futures WON")
+def futures_won(modeladmin, request, queryset):
+    n = queryset.update(status="WON", settled_at=timezone.now())
+    modeladmin.message_user(request, f"Marked {n} futures as WON.")
+
+@admin.action(description="Mark selected futures LOST")
+def futures_lost(modeladmin, request, queryset):
+    n = queryset.update(status="LOST", settled_at=timezone.now())
+    modeladmin.message_user(request, f"Marked {n} futures as LOST.")
+
+@admin.action(description="Mark selected futures PUSH")
+def futures_push(modeladmin, request, queryset):
+    n = queryset.update(status="PUSH", settled_at=timezone.now())
+    modeladmin.message_user(request, f"Marked {n} futures as PUSH.")
+
+@admin.action(description="Mark selected futures PENDING")
+def futures_pending(modeladmin, request, queryset):
+    n = queryset.update(status="PENDING", settled_at=None)
+    modeladmin.message_user(request, f"Marked {n} futures as PENDING.")
+
+@admin.register(FuturePick)
+class FuturePickAdmin(admin.ModelAdmin):
+    list_display = ("team", "season", "index", "pick_text", "american_odds", "status", "settled_at")
+    list_filter = ("season", "team", "status")
+    search_fields = ("pick_text", "team__name")
+    actions = [futures_won, futures_lost, futures_push, futures_pending]
+    

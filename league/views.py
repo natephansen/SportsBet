@@ -3,7 +3,7 @@ from django.contrib.auth.decorators import login_required
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
 from django.contrib.auth.models import User
-from .models import Season, TeamMembership, Bet, TeamParlay
+from .models import Season, TeamMembership, Bet, TeamParlay, FuturePick
 from django.http import HttpResponseForbidden
 from django import forms
 from .sevices import recompute_team_parlay
@@ -19,6 +19,9 @@ from zoneinfo import ZoneInfo
 from django.utils import timezone
 from django.http import JsonResponse
 from collections import defaultdict, Counter
+from .models import FuturePick
+from .forms import FuturesForm
+from django.db import transaction
 
 class BetForm(forms.ModelForm):
     class Meta:
@@ -34,6 +37,31 @@ def week_reveal_dt(season, week: int, hour: int = 13, minute: int = 0):
     # Move to Sunday (weekday: Mon=0 ... Sun=6)
     sunday = base_date + timedelta(days=(6 - base_date.weekday()) % 7)
     return datetime.combine(sunday, time(hour, minute), tzinfo=ZoneInfo("America/New_York")) + timedelta(weeks=week - 1)
+
+def futures_reveal_dt(season_year: int):
+    # Sep 4, 8:00 PM in America/New_York for the given season year
+    return datetime(season_year, 9, 4, 20, 0, tzinfo=ZoneInfo("America/New_York"))
+
+def futures_board(request, season_year: int):
+    season = get_object_or_404(Season, year=season_year)
+
+    now_et = timezone.now().astimezone(ZoneInfo("America/New_York"))
+    reveal_at = futures_reveal_dt(season.year)
+    revealed = now_et >= reveal_at
+
+    # Gather teams and any futures they’ve submitted
+    teams = season.teams.order_by("name")
+    rows = []
+    for t in teams:
+        picks = list(FuturePick.objects.filter(team=t, season=season).order_by("index"))
+        rows.append({"team": t, "picks": picks, "count": len(picks)})
+
+    return render(request, "league/futures_board.html", {
+        "season": season,
+        "revealed": revealed,
+        "reveal_at": reveal_at,   # to print the date/time
+        "rows": rows,
+    })
 
 def home(request):
     seasons = Season.objects.order_by("-year")
@@ -277,6 +305,27 @@ def standings(request, season_year: int):
     )
     parlay_map = {row["team__id"]: row["units"] for row in parlay_units}
 
+    # Team futures units (settled only)
+    futures_units = (
+        FuturePick.objects.filter(season=season).exclude(status="PENDING")
+        .values("team__id")
+        .annotate(
+            units=Sum(
+                Case(
+                    When(status="WON", then=(F("stake_units") * (
+                        Case(
+                            When(american_odds__gte=100, then=(1 + F("american_odds") / 100.0)),
+                            default=(1 + 100.0 / (F("american_odds") * -1.0))
+                        ) - 1.0
+                    ))),
+                    When(status="LOST", then=(-1.0 * F("stake_units"))),
+                    default=0.0, output_field=FloatField(),
+                )
+            )
+        )
+    )
+    futures_map = {row["team__id"]: row["units"] for row in futures_units}
+
     team_units = (
         season.teams.all()
         .annotate(
@@ -297,11 +346,13 @@ def standings(request, season_year: int):
     teams = []
     for t in team_units:
         pu = parlay_map.get(t.id, 0.0)
-        total = (t.indiv_units or 0.0) + pu
+        fu = futures_map.get(t.id, 0.0)
+        total = (t.indiv_units or 0.0) + pu + fu
         teams.append({
             "team": t,
             "indiv_units": t.indiv_units or 0.0,
             "parlay_units": pu,
+            "futures_units": fu,
             "total_units": total,
         })
     teams.sort(key=lambda x: x["total_units"], reverse=True)
@@ -496,20 +547,42 @@ def after_login(request):
 def submit_pick_week_picker(request, season_year: int):
     season = get_object_or_404(Season, year=season_year)
 
-    # must be on a team this season
-    if not TeamMembership.objects.filter(user=request.user, team__season=season).exists():
+    membership = (
+        TeamMembership.objects
+        .filter(user=request.user, team__season=season)
+        .select_related("team")
+        .first()
+    )
+    if not membership:
         return render(request, "league/submit_week_picker.html", {
             "season": season,
             "weeks": range(1, 19),
             "error": "You are not assigned to a team for this season.",
-            "weeks_complete": set(),
-            "weeks_parlay": set(),
+            "weeks_complete": [],
+            "weeks_with_any": [],
+            "weeks_parlay": [],
+            "futures_complete": False,
+            "futures_needed": 3,
         })
 
-    # what the user has saved
+    team = membership.team
+
+    # ---- FUTURES STATUS ----
+    # If FuturePick is a SINGLE ROW containing all 3 legs:
+    fp = FuturePick.objects.filter(team=team, season=season).first()
+    futures_complete = bool(fp)
+    futures_needed = 0 if futures_complete else 3
+
+    # (If instead you have one row per leg, use:)
+    # futures_count = FuturePick.objects.filter(team=team, season=season).count()
+    # futures_complete = futures_count >= 3
+    # futures_needed = max(0, 3 - futures_count)
+
+    # ---- WEEK TILES (exclude futures week=0 if you use that) ----
     rows = (
         Bet.objects
         .filter(user=request.user, season=season)
+        .exclude(week=0)  # don't let futures affect weekly tiles
         .values("week", "bet_type", "parlay_selected")
     )
 
@@ -521,16 +594,20 @@ def submit_pick_week_picker(request, season_year: int):
         if r["parlay_selected"]:
             weeks_parlay.add(w)
 
-    # complete = has all three bet types saved
     required = {"SPREAD", "TOTAL", "PROP"}
     weeks_complete = {w for w, types in per_week_types.items() if required.issubset(types)}
+    weeks_with_any = set(per_week_types.keys())
 
-    return render(request, "league/submit_week_picker.html", {
+    context = {
         "season": season,
         "weeks": range(1, 19),
-        "weeks_complete": weeks_complete,
-        "weeks_parlay": weeks_parlay,
-    })
+        "weeks_complete": list(weeks_complete),
+        "weeks_with_any": list(weeks_with_any),
+        "weeks_parlay": list(weeks_parlay),
+        "futures_complete": futures_complete,
+        "futures_needed": futures_needed,
+    }
+    return render(request, "league/submit_week_picker.html", context)
 
 def standings_data_debug(request, season_year: int):
     season = get_object_or_404(Season, year=season_year)
@@ -598,4 +675,61 @@ def standings_data_debug(request, season_year: int):
         "stinker_data": stinker_data,
         "heater_labels": heater_labels,
         "heater_data": heater_data,
+    })
+
+@login_required
+def submit_futures(request, season_year: int):
+    season = get_object_or_404(Season, year=season_year)
+
+    membership = (
+        TeamMembership.objects
+        .filter(user=request.user, team__season=season)
+        .select_related("team")
+        .first()
+    )
+    if not membership:
+        messages.error(request, "You are not assigned to a team for this season.")
+        return redirect("submit_pick_week_picker", season_year)
+
+    team = membership.team
+
+    # Load existing futures into a dict keyed by index 1..3
+    existing = {fp.index: fp for fp in FuturePick.objects.filter(team=team, season=season)}
+    initial = {
+        "pick1_text": existing.get(1).pick_text if 1 in existing else "",
+        "pick1_odds": existing.get(1).american_odds if 1 in existing else "",
+        "pick2_text": existing.get(2).pick_text if 2 in existing else "",
+        "pick2_odds": existing.get(2).american_odds if 2 in existing else "",
+        "pick3_text": existing.get(3).pick_text if 3 in existing else "",
+        "pick3_odds": existing.get(3).american_odds if 3 in existing else "",
+    }
+
+    if request.method == "POST":
+        form = FuturesForm(request.POST)
+        if form.is_valid():
+            cd = form.cleaned_data
+            with transaction.atomic():
+                # Upsert index 1..3
+                for i in (1, 2, 3):
+                    text = cd[f"pick{i}_text"]
+                    odds = int(cd[f"pick{i}_odds"])
+                    obj = existing.get(i)
+                    if obj:
+                        obj.pick_text = text
+                        obj.american_odds = odds
+                        obj.save(update_fields=["pick_text", "american_odds"])
+                    else:
+                        FuturePick.objects.create(
+                            team=team, season=season, index=i,
+                            pick_text=text, american_odds=odds,
+                        )
+            messages.success(request, "Team futures saved.")
+            return redirect("submit_pick_week_picker", season_year)
+    else:
+        form = FuturesForm(initial=initial)
+
+    return render(request, "league/submit_futures.html", {
+        "season": season,
+        "team": team,
+        "form": form,
     })

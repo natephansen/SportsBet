@@ -1,0 +1,58 @@
+{% extends "league/base.html" %}
+{% block title %}Futures • {{ season.year }}{% endblock %}
+
+{% block content %}
+<h2>Team Futures — {{ season.year }}</h2>
+
+{% if not revealed %}
+  <div class="alert alert-info mt-3">
+    Futures unlock at <strong>8:00 PM ET on Sept 4, {{ season.year }}</strong>.
+    Check back then to see all teams’ picks.
+  </div>
+{% else %}
+  <p class="text-muted">All teams’ futures are shown below. Each team submits three futures; results settle at season end.</p>
+
+  <div class="row g-3">
+    {% for row in rows %}
+      <div class="col-12 col-lg-6">
+        <div class="card h-100">
+          <div class="card-header d-flex justify-content-between align-items-center">
+            <strong>{{ row.team.name }}</strong>
+            {% if row.count < 3 %}
+              <span class="badge text-bg-warning">Incomplete ({{ row.count }}/3)</span>
+            {% else %}
+              <span class="badge text-bg-success">3/3</span>
+            {% endif %}
+          </div>
+          <div class="card-body p-0">
+            <table class="table mb-0">
+              <thead>
+                <tr>
+                  <th style="width:3rem;">#</th>
+                  <th>Pick</th>
+                  <th style="width:8rem;">Odds</th>
+                  <th style="width:6rem;">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% if row.picks %}
+                  {% for p in row.picks %}
+                    <tr>
+                      <td>{{ p.index }}</td>
+                      <td>{{ p.pick_text }}</td>
+                      <td>{{ p.american_odds }}</td>
+                      <td>{{ p.status|title }}</td>
+                    </tr>
+                  {% endfor %}
+                {% else %}
+                  <tr><td colspan="4"><em>No futures submitted yet.</em></td></tr>
+                {% endif %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+{% endif %}
+{% endblock %}
