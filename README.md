@@ -4,6 +4,11 @@ A Django web app for running a friendly sports-betting league. Teams submit week
 
 Built with Python 3.12 and Django 5.2.
 
+Running at: grouplay.onrender.com
+Demo Credentials: 
+- Username: Demo
+- Password: Grouplay123
+
 ## ✨ Features
 
 - Weekly picks: spread, moneyline, totals (O/U), and player props
