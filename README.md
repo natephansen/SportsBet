@@ -1,268 +1,205 @@
-Betting League
+# Betting League (Grouplay)
 
-A production-ready Django web app for running a friendly, season-long betting league. Players join teams, submit weekly picks (Spread, Total, Player Prop), optionally designate one pick for the team parlay, and track standings with clean tables and interactive charts (Chart.js). Dark mode included. Deployed on Render with PostgreSQL.
+A Django web app for running a friendly sports-betting league. Teams submit weekly picks (spreads, moneylines, totals, and player props) and a one-time set of futures picks that settle at season end. Standings are tracked in units, with transparent scoring, interactive charts and an admin workflow for settling results.
 
-⚠️ For recreational/educational use only. No real money is handled or implied.
+Built with Python 3.12 and Django 5.2.
 
-Highlights
+✨ Features
 
-Clear domain model: Seasons → Teams → TeamMemberships; per-user weekly Bets; per-team weekly TeamParlay; optional season-long FuturePicks.
+Weekly picks: spread, moneyline, totals (O/U), and player props
 
-Solid validation:
+Futures picks: each team submits exactly one set (e.g., 3 futures) that lock after a configurable deadline and settle at season end
 
-Exactly one pick per type (Spread / Total / Prop) per user per week.
+Units-based scoring: American odds → units won/lost, tracked per team and season
 
-Over/Under is required for Total & Prop (not for Spread).
+Clean team flow: users join/own teams, submit/edit picks before cutoffs
 
-One “Parlay selected” checkbox across the three picks.
+Mobile-friendly forms: line/odds inputs accept + and − signs (no “numeric keypad only” traps)
 
-Accurate odds math: converts American odds to decimal and computes parlay odds as a product of legs.
+Admin dashboard: create weeks/games, lock windows, settle results atomically, view all picks
 
-Standings + Analytics:
+Auditability: timestamps, one-set-per-team constraint for futures, atomic DB updates
 
-Team & Individual tables (units).
+🧱 Tech Stack
 
-Cumulative line charts by week (teams & individuals).
+Backend: Django 5.2, Python 3.12
 
-“STINKER” (0–3) & “HEATER” (3–0) weekly bar charts.
+DB: SQLite (dev) / PostgreSQL (prod)
 
-Charts auto-truncate to the last settled week and start from week 0.
+Auth: Django auth (email/username + password)
 
-Reveal rules:
+Styling: Django templates + CSS (swap in Tailwind/Bootstrap if you prefer)
 
-Weekly dashboard can reveal picks at Sunday 1:00 PM ET (configurable).
+Ops: .env-driven settings, transactions for critical writes
 
-Futures board reveals Thu Sep 4 @ 8:00 PM ET (per season year).
+🚀 Quick Start
+# 1) Clone
+git clone <your-repo-url> betting_league
+cd betting_league
 
-Admin workflows: one-click actions to mark bets WON/LOST/PUSH/PENDING, recompute parlays, and update parlay status from legs.
+# 2) Python 3.12 virtual env
+python -m venv .venv
+# Windows:
+.venv\Scripts\activate
+# macOS/Linux:
+# source .venv/bin/activate
 
-Responsive UI + Dark Mode with CSS variables; Chart.js theme adapts live.
-
-Tech Stack
-
-Backend: Python 3.12+, Django 5.x
-
-DB: PostgreSQL (Render), SQLite for local dev
-
-Static: WhiteNoise
-
-Frontend: Bootstrap 5, Chart.js (CDN)
-
-Deploy: Render (Web Service + PostgreSQL)
-
-Config: Environment-driven via .env / Render env vars
-
-Data Model (overview)
-
-Season(year, start_date, end_date)
-
-Team(season, name)
-
-TeamMembership(user, team) – user belongs to exactly one team per season
-
-Bet(user, team, season, week, bet_type, pick_text, line, american_odds, over_under?, parlay_selected, status)
-
-TeamParlay(team, season, week, decimal_odds, stake_units, status)
-
-FuturePick(team, season, index, pick_text, american_odds, status) – three per team, settled at season end
-
-over_under only applies to TOTAL and PROP. Spread ignores it by design.
-
-Screenshots (suggested)
-
-(Add a few screenshots/GIFs here: Submit Picks, Week Picker, Standings with charts, Dashboard with filters, Dark mode.)
-
-Getting Started (Local)
-1) Clone & set up environment
-git clone https://github.com/<your-username>/<your-repo>.git
-cd <your-repo>
-
-python -m venv venv
-# Windows: venv\Scripts\activate
-# macOS/Linux: source venv/bin/activate
-
+# 3) Install deps
 pip install -r requirements.txt
 
-2) Configure environment
+# 4) Create an .env file (see below)
+copy .env.example .env    # or create manually
 
-Copy the example and edit as needed:
-
-cp .env.example .env
-
-
-Minimal .env for local dev:
-
-DEBUG=1
-SECRET_KEY=dev-secret-change-me
-ALLOWED_HOSTS=127.0.0.1,localhost
-CSRF_TRUSTED_ORIGINS=http://127.0.0.1:8000,http://localhost:8000
-# optional: DATABASE_URL=postgres://USER:PASS@HOST:5432/DBNAME
-
-
-If DATABASE_URL is omitted locally, the app falls back to SQLite at db.sqlite3.
-
-3) Migrate & create admin
+# 5) Migrate & create an admin
 python manage.py migrate
 python manage.py createsuperuser
 
-4) Run
+# 6) Run the app
 python manage.py runserver
 
+🔐 Environment Variables
 
-Open http://127.0.0.1:8000
- — log in via /admin to seed data.
+Create a .env in your project root:
 
-Seeding Data
+# Core
+DJANGO_SECRET_KEY=change-me
+DJANGO_DEBUG=True
+ALLOWED_HOSTS=localhost,127.0.0.1
 
-Create a Season (e.g., 2025).
+# Database (use one)
+DATABASE_URL=sqlite:///db.sqlite3
+# DATABASE_URL=postgres://USER:PASS@HOST:5432/DBNAME
 
-Create Teams under that season.
+# Security (production)
+# CSRF_TRUSTED_ORIGINS=https://yourdomain.com
+# SESSION_COOKIE_SECURE=True
+# CSRF_COOKIE_SECURE=True
 
-Create Users (or let them register if you add a signup flow).
+### League settings
+LEAGUE_TIME_ZONE=America/Phoenix
 
-Add TeamMembership so each user is on exactly one team for the season.
+### Futures window (example)
+FUTURES_OPEN_AT=2025-09-04T20:00:00-04:00   # 8:00 PM EDT
+FUTURES_CLOSE_AT=2025-09-05T12:00:00-04:00  # optional close
+FUTURES_NUM_PICKS=3                         # per team
 
-(Optional) Create Future Picks per team (three per team) or let teams submit from the UI.
 
-Key Features in the UI
+Tip: If you prefer, manage open/close windows in the Admin instead of env vars.
 
-Submit Picks (per week): three forms (Spread, Total, Player Prop).
+🧭 How It Works
+Data model (high-level)
 
-Over/Under dropdown appears for Total & Prop only.
+User ← Django auth
 
-Exactly one “Parlay selected” across the three picks.
+Team (owner: User, members: Users)
 
-After saving, you’re returned to a Week Picker showing:
+Week (e.g., “Week 1”, lock times, etc.)
 
-Green = completed (3/3).
+Game (home/away, kickoff, line/total reference if you store them)
 
-Checkmark badge if parlay was selected.
+Bet (user/team, week, type: spread/moneyline/total/prop, line, american_odds, over/under flag, stake, status/result)
 
-Dashboard:
+FuturesPick (team, pick text, american_odds, submitted once, locked after window)
 
-Filter by Week, User, Team, Parlay (All/Yes/No).
+Units scoring (American odds)
 
-Reveal picks at 1:00 PM ET on Sunday even if not settled (configurable in view).
+Let stake be 1 unit unless configured otherwise:
 
-Standings:
+Positive odds (+150): units_won = stake * (odds / 100)
 
-Two tables (Teams, Individuals).
+Negative odds (-120): units_won = stake * (100 / abs(odds))
 
-Charts:
+Loss = -stake units
 
-Team cumulative units (line).
+Totals across weekly + futures decide standings.
 
-Individual cumulative units (line).
+🧑‍💻 Developer Notes
+Forms & mobile input
 
-STINKER 0–3 weeks (bar).
+Line and American Odds fields are text inputs to allow - and + on mobile keyboards.
 
-HEATER 3–0 weeks (bar).
+Validation ensures only valid signed numbers make it to the DB.
 
-Charts auto-adapt to light/dark mode.
+Atomic updates
 
-Futures:
+If you use DB transactions (recommended), ensure you import:
 
-Public Futures Board shows every team’s futures in separate tables.
+from django.db import transaction
 
-Board reveals Sep 4 @ 8:00 PM ET.
 
-Teams edit their own futures from the Submit Picks page.
+Wrap multi-step writes (e.g., settling, batch futures save) in @transaction.atomic.
 
-Admin Workflows
+🛠 Admin Workflow
 
-Mark selected bets WON/LOST/PUSH/PENDING (admin actions).
+Create Season/Weeks/Games (or just Weeks if you infer games elsewhere).
 
-Recompute parlay odds (product of all legs’ decimal odds, regardless of win/loss).
+Configure Futures window (via Admin or .env).
 
-Set parlay status from legs: LOST if any leg lost; PENDING if any pending; WON if ≥1 won and none pending/lost; PUSH if all push.
+Teams: created by users or admin; enforce “one futures set per team.”
 
-Bets and parlay changes auto-recompute the corresponding TeamParlay via signals.
+Review/lock: after cutoffs, users can’t edit.
 
-Production (Render)
-1) Provision
+Settle results: assign outcomes → units computed and posted to standings.
 
-Create a PostgreSQL instance (1 GB is plenty for this app).
+✅ Testing
+pytest         # if pytest configured
+# or
+python manage.py test
 
-Create a Web Service from this repo.
+📦 Deployment
 
-2) Environment variables (Render → Settings → Environment)
+PostgreSQL for production (DATABASE_URL=...).
 
-Set at minimum:
+DEBUG=False, set ALLOWED_HOSTS, CSRF_TRUSTED_ORIGINS.
 
-SECRET_KEY=...                  # strong random string
-DEBUG=0
-ALLOWED_HOSTS=grouplay.onrender.com
-CSRF_TRUSTED_ORIGINS=https://grouplay.onrender.com
-DATABASE_URL=postgres://...     # from your Render Postgres
-SECURE_SSL_REDIRECT=1
-SECURE_HSTS_SECONDS=31536000
-LOG_LEVEL=INFO
+Collect static files:
 
-3) Build & start
+python manage.py collectstatic
 
-Render installs dependencies and runs your start command (e.g., gunicorn betting_league.wsgi).
 
-Open a Shell on the Web Service once deployed:
+Run with gunicorn/uvicorn behind Nginx (or deploy to Render/Fly/Heroku).
 
-python manage.py migrate
-python manage.py collectstatic --noinput
-python manage.py createsuperuser
+📚 Useful Management Commands (optional)
 
+If included in the repo, you might find commands such as:
 
-Visit your Render URL and log in.
+python manage.py seed_demo_data   # load a sample season, teams, games
+python manage.py lock_week 1      # lock Week 1 submissions
+python manage.py settle_week 1    # settle Week 1 bets from a scores feed
+python manage.py settle_futures   # settle all futures and post units
 
-Design Notes & Trade-offs
+🧩 Project Structure (typical)
+betting_league/
+├─ league/                # app (models, views, forms, admin, urls, templates)
+├─ betting_league/        # project settings, urls, wsgi/asgi
+├─ templates/             # base.html + pages
+├─ static/                # css/js/img
+├─ manage.py
+├─ requirements.txt
+└─ .env.example
 
-Environment-driven config: Safe defaults for local dev (SQLite) with a clean switch to Postgres via DATABASE_URL.
+🗓 Futures Window Example
 
-Security: HSTS/HTTPS/cookie settings auto-enabled when DEBUG=0.
+Want futures to show up starting Thu, Sept 4, 2025 at 8:00 PM Eastern?
+Set:
 
-Reveal logic implemented in views with zoneinfo to avoid cron/dependencies.
+FUTURES_OPEN_AT=2025-09-04T20:00:00-04:00
 
-Charts delivered via CDN to keep the build lightweight and simple.
 
-No external betting API: All inputs are user-entered; validations enforce consistency.
+You can also expose this in Admin for non-dev changes.
 
-Testing & Quality
+🤝 Contributing
 
-Django admin actions and database signals provide clear, auditable pathways for state changes.
+Open an issue or PR with a clear description.
 
-Queries use annotate + conditional Case/When for repeatable units/odds math.
+Keep features small and well-tested.
 
-Roadmap includes test coverage for critical calculations (parlay math, units aggregation, stinker/heater logic).
+Follow Django best practices and PEP 8.
 
-Roadmap
+📄 License
 
-✅ Dark mode with live chart theming
+MIT (or your preferred license). Add a LICENSE file at repo root.
 
-✅ Reveal policies (weekly, futures)
+💬 Contact
 
-⏳ PWA support (installable icon, offline shell, notifications for reminders)
-
-⏳ Daily/weekly email reminders (pick deadlines, results)
-
-⏳ Slack/Discord webhooks for big wins & team parlays
-
-⏳ More analytics: player “heater” streak charts; team momentum, ROI per bet type
-
-⏳ Permissions & roles (captains, commissioners)
-
-Running the Lint/Test Suite
-
-(Add when you introduce linters/tests)
-
-# examples
-ruff check .
-pytest
-
-Contributing
-
-PRs welcome. Please open an issue to discuss larger changes (data model, UX, deployment). Keep features behind settings flags when possible.
-
-License
-
-MIT © You
-
-Contact
-
-Questions or feedback? Open an issue in this repo.
+Questions or suggestions? Open an issue or reach out to the maintainer.
