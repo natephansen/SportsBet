@@ -108,7 +108,7 @@ class TeamMembershipAdmin(admin.ModelAdmin):
 @admin.register(Bet)
 class BetAdmin(admin.ModelAdmin):
     list_display = ("user","team","season","week","bet_type","pick_text","line",
-                    "american_odds","parlay_selected","status","settled_at")
+                    "over_under","american_odds","parlay_selected","status","settled_at")
     list_filter = ("season","team","week","bet_type","status","parlay_selected")
     search_fields = ("user__username","pick_text")
     actions = [mark_won, mark_lost, mark_pending, mark_push]
