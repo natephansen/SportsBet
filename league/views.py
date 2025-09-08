@@ -26,7 +26,7 @@ from django.db import transaction
 class BetForm(forms.ModelForm):
     class Meta:
         model = Bet
-        fields = ["pick_text", "line", "american_odds", "parlay_selected"]  # stake_units fixed at 1 for now
+        fields = ["pick_text", "line", "american_odds", "parlay_selected","over_under"]  # stake_units fixed at 1 for now
 
 def week_reveal_dt(season, week: int, hour: int = 13, minute: int = 0):
     """
